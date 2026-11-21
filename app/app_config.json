@@ -1,0 +1,13 @@
+{
+  "javaVersion": "21",
+  "libraries": [],
+  "libraryEntries": {},
+  "minSdkVersion": 24,
+  "package": "com.aiagent",
+  "targetSdkVersion": 34,
+  "useR8": false,
+  "versionCode": 4,
+  "versionName": "2.2",
+  "viewBindingEnabled": false,
+  "zipAlignEnabled": false
+}

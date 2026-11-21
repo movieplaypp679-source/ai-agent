@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.aiagent"
+        minSdk 24
+        targetSdk 34
+        versionCode 4
+        versionName "2.2"
+        ndk {
+            // MediaPipe LLM runs on 64-bit ARM phones
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+	// On-device LLM engine (Google MediaPipe LLM Inference)
+	implementation 'com.google.mediapipe:tasks-genai:0.10.27'
+	implementation 'com.google.guava:guava:31.1-android'
+	// NOTE: if your IDE (Build Studio) ignores this block, add the same two
+	// libraries from its Library Manager.
+}
