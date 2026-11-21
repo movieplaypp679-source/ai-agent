@@ -312,6 +312,11 @@ input[type=range]{width:100%;accent-color:#8b5cf6;height:28px}
       <div class="row"><label>Voice language</label><select class="inp" data-s="voiceLang"><option value="hi-IN">Hindi (hi-IN)</option><option value="en-IN">English India (en-IN)</option><option value="en-US">English US (en-US)</option></select></div>
     </div></div>
 
+    <div class="sec"><h3>Agent ka browser · login &amp; real pages</h3><div class="card">
+      <div class="row"><small style="color:var(--mut);font-size:12px;line-height:1.5">Agent ab research/web_search/fetch_url ke liye apna khud ka real browser (JS chalane wala, login session yaad rakhne wala) istemal karta hai — koi extra setup nahi chahiye. Agar koi site login maange aur agent khud login na kar paye, yahan se wahi site kholkar khud login karo — uske baad agent usi session se wo site padh sakega.</small></div>
+      <div class="row"><label>Site kholo</label><input class="inp" id="brUrl" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="e.g. mail.google.com"></div>
+      <div class="row"><button class="btn sm" id="btnBrOpen">Browser kholo</button></div>
+    </div></div>
     <div class="sec"><h3>Workspace · local files &amp; permissions</h3><div class="card">
       <div class="row"><div class="rv"><label>Workspace folder</label><b id="fsName" style="font-size:12.5px;word-break:break-all"></b></div>
         <small style="color:var(--mut);font-size:12px">Agent sirf is folder ke andar files padh, likh, edit aur download kar sakta hai. Permission Android ka folder picker deta hai; kabhi bhi hata sakte ho.</small>
@@ -429,6 +434,21 @@ function request(o){
 }
 var UA_H={'Accept':'text/html,application/xhtml+xml,*/*;q=0.8','Accept-Language':'en-US,en;q=0.9'};
 
+/* ---------- agent's own real browser (JS-rendering WebView + saved login cookies) ---------- */
+var browsePending={};
+window.__browse=function(id,type,data){
+ var p=browsePending[id];if(!p)return;delete browsePending[id];
+ if(type==='ok'){try{p.resolve(JSON.parse(data))}catch(e){p.reject(new Error('Browser result parse nahi hua'))}}
+ else p.reject(new Error(data||'Agent browser fail ho gaya'));
+};
+function browsePage(url){
+ return new Promise(function(resolve,reject){
+  if(!(A&&A.browse)){reject(new Error('Agent browser sirf app ke andar chalta hai'));return}
+  var id=uid();browsePending[id]={resolve:resolve,reject:reject};
+  A.browse(id,url);
+ });
+}
+
 /* ---------- model providers ---------- */
 function base(){return S.baseUrl.trim().replace(/\/+$/,'')}
 function authH(){var h={};if(S.apiKey)h.Authorization='Bearer '+S.apiKey;return h}
@@ -470,7 +490,7 @@ async function cloudStream(messages,onText,signal){
    if((signal&&signal.aborted)||(e&&e.name==='AbortError'))throw e;
    var msg=String(e&&e.message||e);
    var auth=/HTTP (401|403)/.test(msg);
-   var retry=auth||/HTTP (429|5\d\d|404|402|400)|rate|quota|limit|overload|capacity|exhaust|unavailable|not found|does not exist|no longer|deprecated|decommission|credit|model/i.test(msg);
+   var retry=auth||/HTTP (429|5\d\d|404|402|400)|rate|quota|limit|overload|capacity|exhaust|unavailable|not found|does not exist|no longer|deprecated|decommission|credit|model|timeout|timed out|stall|socket|connect|network|unreachable|reset|refused|resolve host|handshake|aborted|EOF/i.test(msg);
    if(!retry||tried>=6)throw e;
    tried++;
    if(!auth){
@@ -490,6 +510,7 @@ function chatStream(messages,onText,signal){
  if(S.provider==='openai'&&S.autoModel!==false){provTried={};if(S.preset)provTried[S.preset]=1;return cloudStream(messages,onText,signal)}
  return rawChat(messages,onText,signal);
 }
+var STALL_MS=18000; // itne ms tak server se ek bhi byte na aaye to maan lo atak gaya
 function rawChat(messages,onText,signal){
  if(S.provider==='device')return deviceStream(messages,onText,signal,1);
  var url,body,headers=Object.assign({'Content-Type':'application/json'},authH());
@@ -497,7 +518,13 @@ function rawChat(messages,onText,signal){
  else{url=v1()+'/chat/completions';body={model:S.model,messages:messages,stream:true,temperature:+S.temperature}}
  var full='',think='',errMsg='';
  var out=function(){return (think?'<think>'+think+(full?'</think>':''):'')+full};
- return request({method:'POST',url:url,headers:headers,body:JSON.stringify(body),signal:signal,onLine:function(line){
+ var innerCtl=new AbortController(),stalled=false,lastActivity=Date.now();
+ if(signal){if(signal.aborted)innerCtl.abort();else signal.addEventListener('abort',function(){innerCtl.abort()})}
+ var watchdog=setInterval(function(){
+  if(Date.now()-lastActivity>STALL_MS){clearInterval(watchdog);stalled=true;try{innerCtl.abort()}catch(e){}}
+ },2000);
+ return request({method:'POST',url:url,headers:headers,body:JSON.stringify(body),signal:innerCtl.signal,onLine:function(line){
+  lastActivity=Date.now();
   line=line.trim();if(!line)return;
   try{
    if(S.provider==='ollama'){
@@ -513,9 +540,14 @@ function rawChat(messages,onText,signal){
    }
   }catch(e){}
  }}).then(function(r){
+  clearInterval(watchdog);
   if(errMsg)throw new Error(errMsg);
   if(r.status>=400){var m=r.text.slice(0,240);try{var j=JSON.parse(r.text);m=(j.error&&(j.error.message||j.error))||m}catch(e){}throw new Error('HTTP '+r.status+': '+m)}
   return out();
+ }).catch(function(e){
+  clearInterval(watchdog);
+  if(stalled&&!(signal&&signal.aborted))throw new Error('stall: '+(STALL_MS/1000)+'s tak server se kuch nahi aaya');
+  throw e;
  });
 }
 
@@ -873,15 +905,23 @@ async function webSearch(q){var res=await searchRaw(q);return res.slice(0,6).map
 async function readPage(url,start){
  url=String(url||'').trim();if(!url)throw new Error('empty url');
  if(!/^https?:\/\//i.test(url))url='https://'+url;
- var r=await request({url:url,headers:UA_H});
- if(r.status>=400)throw new Error('HTTP '+r.status);
- var d=new DOMParser().parseFromString(r.text,'text/html');
- d.querySelectorAll('script,style,noscript,svg,nav,footer,header,form,iframe,aside').forEach(function(e){e.remove()});
- var root=d.querySelector('article,main,[role=main]')||d.body;
- var t=((root&&root.textContent)||'').replace(/[\t ]+/g,' ').replace(/\n\s*\n+/g,'\n').trim();
+ var title='',t='';
+ try{
+  var br=await browsePage(url); // real browser: JS runs, login cookies reused
+  title=br.title||'';t=String(br.text||'').trim();
+  if(!t)throw new Error('empty');
+ }catch(e){
+  var r=await request({url:url,headers:UA_H});
+  if(r.status>=400)throw new Error('HTTP '+r.status);
+  var d=new DOMParser().parseFromString(r.text,'text/html');
+  d.querySelectorAll('script,style,noscript,svg,nav,footer,header,form,iframe,aside').forEach(function(e){e.remove()});
+  var root=d.querySelector('article,main,[role=main]')||d.body;
+  title=(d.title||'').trim();
+  t=((root&&root.textContent)||'').replace(/[\t ]+/g,' ').replace(/\n\s*\n+/g,'\n').trim();
+ }
  if(!t)throw new Error('Page par readable text nahi mila');
  var st=Math.max(0,parseInt(start,10)||0),N=S.provider==='device'?2600:7000;
- return 'Title: '+(d.title||'').trim()+'\nURL: '+url+'\n\n'+t.slice(st,st+N)+(t.length>st+N?'\n...[aur hai: read_webpage start='+(st+N)+' dekho]':'');
+ return 'Title: '+title+'\nURL: '+url+'\n\n'+t.slice(st,st+N)+(t.length>st+N?'\n...[aur hai: read_webpage start='+(st+N)+' dekho]':'');
 }
 var WCODE={0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',71:'Light snow',73:'Snow',75:'Heavy snow',80:'Rain showers',81:'Rain showers',82:'Violent showers',95:'Thunderstorm',96:'Thunderstorm with hail',99:'Thunderstorm with heavy hail'};
 async function weather(city){
@@ -1027,6 +1067,10 @@ async function fetchUrl(a){
  if(mode==='json'){var j;try{j=JSON.parse(r.text)}catch(e){throw new Error('Response JSON nahi hai')}return JSON.stringify(j,null,1).slice(0,dev?2800:9000)}
  if(mode==='html')return r.text.slice(0,dev?2800:9000);
  if(mode==='links'){
+  try{
+   var br=await browsePage(url);
+   if(br.links&&br.links.length)return br.links.slice(0,dev?25:60).join('\n');
+  }catch(e){}
   var d=new DOMParser().parseFromString(r.text,'text/html'),seen={},out=[];
   d.querySelectorAll('a[href]').forEach(function(x){var u;try{u=new URL(x.getAttribute('href'),url).href}catch(e){return}if(!/^https?:/.test(u)||seen[u])return;seen[u]=1;out.push((x.textContent||'').trim().replace(/\s+/g,' ').slice(0,60)+' -> '+u)});
   return out.slice(0,dev?25:60).join('\n')||'Koi link nahi mila';
@@ -1558,6 +1602,10 @@ function fillSettings(){
  renderMem();renderTasks();renderWorkspace();renderSkills();$('#a1Url').value=S.a1Url||'';
 }
 
+$('#btnBrOpen').addEventListener('click',function(){
+ if(!(A&&A.openBrowser)){toast('Agent browser sirf app ke andar chalta hai');return}
+ var u=$('#brUrl').value.trim();A.openBrowser(u);
+});
 $('#btnFsPick').addEventListener('click',function(){if(A&&A.fsPick)A.fsPick();else toast('Folder access sirf app ke andar chalta hai')});
 $('#btnFsClear').addEventListener('click',function(){if(A&&A.fsClear)A.fsClear();fsRootName='';renderWorkspace();toast('Workspace access hata diya')});
 $('#permList').addEventListener('input',function(e){var k=e.target.getAttribute&&e.target.getAttribute('data-perm');if(k){if(k==='system'&&e.target.value==='allow')e.target.value='ask';S.perms[k]=e.target.value;saveS()}});

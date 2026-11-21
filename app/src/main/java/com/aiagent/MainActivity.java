@@ -19,6 +19,8 @@ import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.os.StatFs;
 import android.speech.RecognitionListener;
@@ -28,9 +30,12 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -72,6 +77,7 @@ public class MainActivity extends Activity {
 	private static final String UA = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
 
 	private WebView web;
+	private final Handler mainHandler = new Handler(Looper.getMainLooper());
 	private final ExecutorService pool = Executors.newCachedThreadPool();
 	private final Map<String, HttpURLConnection> conns = new ConcurrentHashMap<>();
 
@@ -117,6 +123,8 @@ public class MainActivity extends Activity {
 		s.setSupportZoom(false);
 		s.setBuiltInZoomControls(false);
 
+		CookieManager.getInstance().setAcceptCookie(true);
+		CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
 		web.addJavascriptInterface(new Bridge(), "Android");
 		web.setWebChromeClient(new WebChromeClient());
 		web.setWebViewClient(new WebViewClient() {
@@ -160,6 +168,28 @@ public class MainActivity extends Activity {
 				@Override
 				public void run() {
 					doHttp(id, method, url, headers, body);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void openBrowser(final String url) {
+			runOnUiThread(new Runnable() {
+				@Override
+				public void run() {
+					Intent i = new Intent(MainActivity.this, BrowserActivity.class);
+					if (url != null && url.trim().length() > 0) i.putExtra("url", url.trim());
+					startActivity(i);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void browse(final String id, final String url) {
+			mainHandler.post(new Runnable() {
+				@Override
+				public void run() {
+					doBrowse(id, url);
 				}
 			});
 		}
@@ -1223,14 +1253,119 @@ public class MainActivity extends Activity {
 		js("window.__net&&window.__net(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data) + ")");
 	}
 
+	// ---------- Agent's own headless browser (real WebView: JS runs, login cookies reused) ----------
+	private void browseEvt(String id, String type, String data) {
+		js("window.__browse&&window.__browse(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data == null ? "" : data) + ")");
+	}
+
+	private void doBrowse(final String id, String rawUrl) {
+		String u = rawUrl == null ? "" : rawUrl.trim();
+		if (u.length() == 0) {
+			browseEvt(id, "err", "empty url");
+			return;
+		}
+		if (!u.matches("(?i)^https?://.*")) u = "https://" + u;
+		final String url = u;
+		final WebView wv = new WebView(this);
+		WebSettings ws = wv.getSettings();
+		ws.setJavaScriptEnabled(true);
+		ws.setDomStorageEnabled(true);
+		ws.setUserAgentString(UA);
+		ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+		CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true);
+		final boolean[] done = {false};
+		final Runnable timeoutRun = new Runnable() {
+			@Override
+			public void run() {
+				if (done[0]) return;
+				done[0] = true;
+				try {
+					wv.stopLoading();
+					wv.destroy();
+				} catch (Exception ignored) {
+				}
+				browseEvt(id, "err", "Timeout: page 20s mein load nahi hui");
+			}
+		};
+		mainHandler.postDelayed(timeoutRun, 20000);
+		wv.setWebViewClient(new WebViewClient() {
+			@Override
+			public void onPageFinished(WebView v, String finishedUrl) {
+				if (done[0]) return;
+				// JS-heavy pages (SPA) render kuch der baad, thoda ruk ke content nikalo
+				mainHandler.postDelayed(new Runnable() {
+					@Override
+					public void run() {
+						if (done[0]) return;
+						done[0] = true;
+						mainHandler.removeCallbacks(timeoutRun);
+						extractBrowsed(id, wv);
+					}
+				}, 1200);
+			}
+
+			@Override
+			public void onReceivedError(WebView v, WebResourceRequest req, WebResourceError error) {
+				if (req != null && req.isForMainFrame() && !done[0]) {
+					done[0] = true;
+					mainHandler.removeCallbacks(timeoutRun);
+					try {
+						wv.destroy();
+					} catch (Exception ignored) {
+					}
+					browseEvt(id, "err", "Load error: " + (error != null ? error.getDescription() : "unknown"));
+				}
+			}
+		});
+		try {
+			wv.loadUrl(url);
+		} catch (Exception e) {
+			mainHandler.removeCallbacks(timeoutRun);
+			browseEvt(id, "err", "loadUrl fail: " + e.getMessage());
+		}
+	}
+
+	private void extractBrowsed(final String id, final WebView wv) {
+		String js = "(function(){try{" +
+				"var d=document;" +
+				"['script','style','noscript','svg','nav','footer','header','form','iframe','aside'].forEach(function(t){var a=d.querySelectorAll(t);for(var i=0;i<a.length;i++)a[i].parentNode&&a[i].parentNode.removeChild(a[i])});" +
+				"var root=d.querySelector('article,main,[role=main]')||d.body;" +
+				"var t=((root&&root.innerText)||'').replace(/\\n\\s*\\n+/g,'\\n').trim();" +
+				"var links=[];var as=d.querySelectorAll('a[href]');for(var i=0;i<as.length&&links.length<60;i++){try{links.push(((as[i].textContent||'').trim().replace(/\\s+/g,' ').slice(0,60))+' -> '+as[i].href)}catch(e){}}" +
+				"return JSON.stringify({title:d.title||'',url:location.href,text:t.slice(0,20000),links:links});" +
+				"}catch(e){return JSON.stringify({error:String(e)})}})()";
+		wv.evaluateJavascript(js, new ValueCallback<String>() {
+			@Override
+			public void onReceiveValue(String value) {
+				try {
+					wv.destroy();
+				} catch (Exception ignored) {
+				}
+				CookieManager.getInstance().flush();
+				if (value == null || "null".equals(value)) {
+					browseEvt(id, "err", "Content nahi mila");
+					return;
+				}
+				// evaluateJavascript result aata hai ek JSON-encoded string literal ke roop mein; usse unescape karo
+				String decoded;
+				try {
+					decoded = new JSONObject("{\"v\":" + value + "}").getString("v");
+				} catch (Exception e) {
+					decoded = value;
+				}
+				browseEvt(id, "ok", decoded);
+			}
+		});
+	}
+
 	private void doHttp(String id, String method, String url, String headers, String body) {
 		HttpURLConnection c = null;
 		try {
 			c = (HttpURLConnection) new URL(url).openConnection();
 			conns.put(id, c);
 			c.setRequestMethod(method);
-			c.setConnectTimeout(15000);
-			c.setReadTimeout(300000);
+			c.setConnectTimeout(12000);
+			c.setReadTimeout(45000);
 			c.setInstanceFollowRedirects(true);
 			JSONObject h = new JSONObject(headers == null || headers.length() == 0 ? "{}" : headers);
 			Iterator<String> it = h.keys();

@@ -10,10 +10,9 @@ android {
         applicationId "com.aiagent"
         minSdk 24
         targetSdk 34
-        versionCode 4
-        versionName "2.2"
+        versionCode 6
+        versionName "2.4"
         ndk {
-            // MediaPipe LLM runs on 64-bit ARM phones
             abiFilters 'arm64-v8a'
         }
     }
@@ -31,7 +30,6 @@ android {
 }
 
 dependencies {
-    // On-device LLM engine (Google MediaPipe LLM Inference)
     implementation 'com.google.mediapipe:tasks-genai:0.10.27'
     implementation 'com.google.guava:guava:31.1-android'
 }
