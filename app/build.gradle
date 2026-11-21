@@ -3,6 +3,7 @@ plugins {
 }
 
 android {
+    namespace 'com.aiagent'
     compileSdk 34
 
     defaultConfig {
@@ -30,9 +31,7 @@ android {
 }
 
 dependencies {
-	// On-device LLM engine (Google MediaPipe LLM Inference)
-	implementation 'com.google.mediapipe:tasks-genai:0.10.27'
-	implementation 'com.google.guava:guava:31.1-android'
-	// NOTE: if your IDE (Build Studio) ignores this block, add the same two
-	// libraries from its Library Manager.
+    // On-device LLM engine (Google MediaPipe LLM Inference)
+    implementation 'com.google.mediapipe:tasks-genai:0.10.27'
+    implementation 'com.google.guava:guava:31.1-android'
 }
