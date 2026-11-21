@@ -9,9 +9,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -28,6 +30,7 @@ import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
@@ -58,6 +61,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.List;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -190,6 +194,16 @@ public class MainActivity extends Activity {
 				@Override
 				public void run() {
 					doBrowse(id, url);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void screenCmd(final String id, final String cmd, final String argsJson) {
+			pool.execute(new Runnable() {
+				@Override
+				public void run() {
+					doScreenCmd(id, cmd, argsJson);
 				}
 			});
 		}
@@ -1253,6 +1267,125 @@ public class MainActivity extends Activity {
 		js("window.__net&&window.__net(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data) + ")");
 	}
 
+	// ---------- Agent's screen control (open apps, see screen, tap/type/swipe) ----------
+	private void screenEvt(String id, String type, String data) {
+		js("window.__screen&&window.__screen(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data == null ? "" : data) + ")");
+	}
+
+	private void doScreenCmd(final String id, String cmd, String argsJson) {
+		try {
+			JSONObject a = new JSONObject(argsJson == null || argsJson.length() == 0 ? "{}" : argsJson);
+			if ("status".equals(cmd)) {
+				screenEvt(id, "ok", ScreenAgentService.instance != null ? "on" : "off");
+				return;
+			}
+			if ("enable_prompt".equals(cmd)) {
+				mainHandler.post(new Runnable() {
+					@Override
+					public void run() {
+						try {
+							Intent i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+							i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+							startActivity(i);
+						} catch (Exception ignored) {
+						}
+					}
+				});
+				screenEvt(id, "ok", "Accessibility settings khul rahi hai - usme 'AI Agent' dhundh ke ON kar do, phir dubara try karo.");
+				return;
+			}
+			if ("launch".equals(cmd)) {
+				final String q = a.optString("app", "").trim();
+				if (q.length() == 0) {
+					screenEvt(id, "err", "app name required");
+					return;
+				}
+				final PackageManager pm = getPackageManager();
+				Intent main = new Intent(Intent.ACTION_MAIN);
+				main.addCategory(Intent.CATEGORY_LAUNCHER);
+				List<ResolveInfo> apps = pm.queryIntentActivities(main, 0);
+				ResolveInfo best = null;
+				int bestScore = -1;
+				StringBuilder names = new StringBuilder();
+				String ql = q.toLowerCase(Locale.US);
+				for (ResolveInfo ri : apps) {
+					String label = String.valueOf(ri.loadLabel(pm));
+					String ll = label.toLowerCase(Locale.US);
+					if (names.length() < 500) names.append(label).append(", ");
+					int score = -1;
+					if (ll.equals(ql)) score = 100;
+					else if (ll.startsWith(ql)) score = 80;
+					else if (ll.contains(ql)) score = 60;
+					if (score > bestScore) {
+						bestScore = score;
+						best = ri;
+					}
+				}
+				if (best == null || bestScore < 0) {
+					screenEvt(id, "err", "App nahi mila: " + q + ". Installed apps mein se kuch: " + names);
+					return;
+				}
+				final ResolveInfo fbest = best;
+				final String label = String.valueOf(best.loadLabel(pm));
+				mainHandler.post(new Runnable() {
+					@Override
+					public void run() {
+						try {
+							Intent launch = pm.getLaunchIntentForPackage(fbest.activityInfo.packageName);
+							if (launch == null) {
+								launch = new Intent();
+								launch.setClassName(fbest.activityInfo.packageName, fbest.activityInfo.name);
+							}
+							launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+							startActivity(launch);
+							screenEvt(id, "ok", "Khol diya: " + label);
+						} catch (Exception e) {
+							screenEvt(id, "err", "Launch fail: " + e.getMessage());
+						}
+					}
+				});
+				return;
+			}
+			if (ScreenAgentService.instance == null) {
+				screenEvt(id, "err", "Screen control abhi OFF hai. screen_enable tool chalao ya Settings > Accessibility mein 'AI Agent' ko manually ON karo, phir try karo.");
+				return;
+			}
+			if ("shot".equals(cmd)) {
+				ScreenAgentService.instance.shoot(new ScreenAgentService.ShotCb() {
+					@Override
+					public void ok(String b64) {
+						screenEvt(id, "ok", b64);
+					}
+
+					@Override
+					public void err(String m) {
+						screenEvt(id, "err", m);
+					}
+				});
+			} else if ("tap".equals(cmd)) {
+				int x = a.optInt("x", -1), y = a.optInt("y", -1);
+				if (x < 0 || y < 0) {
+					screenEvt(id, "err", "x,y required");
+					return;
+				}
+				boolean ok = ScreenAgentService.instance.tapAt(x, y);
+				screenEvt(id, ok ? "ok" : "err", ok ? ("Tapped " + x + "," + y) : "Tap dispatch fail hua");
+			} else if ("swipe".equals(cmd)) {
+				int x1 = a.optInt("x1", 0), y1 = a.optInt("y1", 0), x2 = a.optInt("x2", 0), y2 = a.optInt("y2", 0);
+				boolean ok = ScreenAgentService.instance.swipe(x1, y1, x2, y2);
+				screenEvt(id, ok ? "ok" : "err", ok ? "Swiped" : "Swipe dispatch fail hua");
+			} else if ("type".equals(cmd)) {
+				String t = a.optString("text", "");
+				boolean ok = ScreenAgentService.instance.typeText(t);
+				screenEvt(id, ok ? "ok" : "err", ok ? "Typed" : "Koi focused/editable text field nahi mila - pehle us field par screen_tap karo");
+			} else {
+				screenEvt(id, "err", "Unknown screen cmd: " + cmd);
+			}
+		} catch (Exception e) {
+			screenEvt(id, "err", e.getMessage() == null ? String.valueOf(e) : e.getMessage());
+		}
+	}
+
 	// ---------- Agent's own headless browser (real WebView: JS runs, login cookies reused) ----------
 	private void browseEvt(String id, String type, String data) {
 		js("window.__browse&&window.__browse(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data == null ? "" : data) + ")");
@@ -1456,11 +1589,40 @@ public class MainActivity extends Activity {
 		pendingSpeech = null;
 		int max = TextToSpeech.getMaxSpeechInputLength() - 100;
 		if (t.length() > max) t = t.substring(0, max);
+		Locale loc = null;
 		try {
-			tts.setLanguage(Locale.forLanguageTag(pendingSpeechLang));
+			loc = Locale.forLanguageTag(pendingSpeechLang);
+			tts.setLanguage(loc);
 		} catch (Exception ignored) {
 		}
+		setBestFemaleVoice(loc);
 		tts.speak(t, TextToSpeech.QUEUE_FLUSH, null, "ai_agent_utt");
+	}
+
+	// Jitni bhi voices phone/TTS engine ke paas available hain, unme se sabse achhi
+	// female voice chunta hai (naam mein "female" hota hai jaise "en-us-x-sfg#female_1").
+	// Kuch engines par ye info nahi milti - tab default voice hi chalti rahegi.
+	private void setBestFemaleVoice(Locale loc) {
+		try {
+			Set<Voice> voices = tts.getVoices();
+			if (voices == null || voices.isEmpty()) return;
+			String lang = loc != null ? loc.getLanguage() : "";
+			Voice best = null;
+			int bestScore = -1;
+			for (Voice v : voices) {
+				if (v == null || v.getName() == null) continue;
+				String name = v.getName().toLowerCase(Locale.US);
+				if (!name.contains("female")) continue;
+				boolean sameLang = lang.length() > 0 && v.getLocale() != null && lang.equalsIgnoreCase(v.getLocale().getLanguage());
+				int score = (sameLang ? 1000 : 0) + (v.isNetworkConnectionRequired() ? 0 : 200) + v.getQuality();
+				if (score > bestScore) {
+					bestScore = score;
+					best = v;
+				}
+			}
+			if (best != null) tts.setVoice(best);
+		} catch (Exception ignored) {
+		}
 	}
 
 	// ---------- Speech to text ----------

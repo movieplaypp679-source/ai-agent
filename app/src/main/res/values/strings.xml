@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 <string name="app_name" translatable="false">AI Agent</string>
+<string name="screen_agent_desc" translatable="false">AI Agent ko screenshot lene aur taps/typing karne deta hai, taaki wo khud kisi bhi app (jaise Godot) ko operate kar sake jab aap usse bolein.</string>
 </resources>

@@ -381,10 +381,10 @@ function paintIcons(root){Array.prototype.forEach.call((root||document).querySel
 
 /* ---------- storage ---------- */
 var LS={get:function(k,d){try{var v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-var PERM_DEF={web:'allow',read:'allow',write:'ask',delete:'ask',download:'ask',system:'ask'};
+var PERM_DEF={web:'allow',read:'allow',write:'ask',delete:'ask',download:'ask',system:'ask',device:'ask'};
 var DEF={provider:(A&&A.llmLoad)?'device':'ollama',devModel:'',devBackend:'cpu',maxNew:512,profile:'',pendingA1:false,hfToken:'',custom:[],baseUrl:'http://127.0.0.1:11434',apiKey:'',model:'',temperature:0.7,agent:true,maxSteps:6,
- tools:{web_search:true,read_webpage:true,get_datetime:true,calculator:true,weather:true,device_info:true,remember:true,tasks:true,unit_convert:true,forget:true,clipboard:true,fetch_url:true,research:true,download_file:true,fs_list:true,fs_read:true,fs_write:true,fs_append:true,fs_edit:true,fs_mkdir:true,fs_delete:true,fs_rename:true,fs_search:true,project_create:true,use_skill:true,create_skill:true,godot_new:true,find_assets:true,polyhaven_model:true,unzip_file:true,open_file:true,terminal:false},
- plan:true,a1Url:'',a1Auto:true,a1Key:'',a1Switch:'',keys:{},preset:'',autoModel:true,modelAuto:true,
+ tools:{web_search:true,read_webpage:true,get_datetime:true,calculator:true,weather:true,device_info:true,remember:true,tasks:true,unit_convert:true,forget:true,clipboard:true,fetch_url:true,research:true,download_file:true,fs_list:true,fs_read:true,fs_write:true,fs_append:true,fs_edit:true,fs_mkdir:true,fs_delete:true,fs_rename:true,fs_search:true,project_create:true,use_skill:true,create_skill:true,godot_new:true,find_assets:true,polyhaven_model:true,unzip_file:true,open_file:true,terminal:false,open_app:true,screen_enable:true,screen_look:true,screen_tap:true,screen_type:true,screen_swipe:true},
+ plan:true,a1Url:'',a1Auto:true,a1Key:'',a1Switch:'',keys:{},preset:'',autoModel:false,modelAuto:false,
  lang:'auto',system:'',speak:false,voiceLang:'hi-IN'};
 var S=Object.assign({},DEF,LS.get('settings',{}));S.tools=Object.assign({},DEF.tools,S.tools||{});
 S.perms=Object.assign({},PERM_DEF,S.perms||{});
@@ -446,6 +446,20 @@ function browsePage(url){
   if(!(A&&A.browse)){reject(new Error('Agent browser sirf app ke andar chalta hai'));return}
   var id=uid();browsePending[id]={resolve:resolve,reject:reject};
   A.browse(id,url);
+ });
+}
+
+/* ---------- screen control (open apps, screenshot, tap/type/swipe via Accessibility) ---------- */
+var screenPending={},lastScreenImg='';
+window.__screen=function(id,type,data){
+ var p=screenPending[id];if(!p)return;delete screenPending[id];
+ if(type==='ok')p.resolve(data);else p.reject(new Error(data||'Screen control fail ho gaya'));
+};
+function screenCmd(cmd,args){
+ return new Promise(function(resolve,reject){
+  if(!(A&&A.screenCmd)){reject(new Error('Screen control sirf app ke andar chalta hai'));return}
+  var id=uid();screenPending[id]={resolve:resolve,reject:reject};
+  A.screenCmd(id,cmd,JSON.stringify(args||{}));
  });
 }
 
@@ -919,7 +933,10 @@ async function readPage(url,start){
   title=(d.title||'').trim();
   t=((root&&root.textContent)||'').replace(/[\t ]+/g,' ').replace(/\n\s*\n+/g,'\n').trim();
  }
- if(!t)throw new Error('Page par readable text nahi mila');
+ if(!t||/sign in|log in|login required|verify you.?re (a )?human|captcha|enter your password|authentication required|access denied|too many requests/i.test((title+' '+t.slice(0,400)).toLowerCase())&&t.length<500){
+  if(A&&A.openBrowser){A.openBrowser(url);throw new Error('Is page ko login/verification chahiye - maine Agent ka apna browser khol diya hai, wahan apne Google account se login karo, phir yahi URL dubara read_webpage se try karo.')}
+  throw new Error('Page par readable text nahi mila (shayad login/verification chahiye, par is phone par Agent browser available nahi hai)');
+ }
  var st=Math.max(0,parseInt(start,10)||0),N=S.provider==='device'?2600:7000;
  return 'Title: '+title+'\nURL: '+url+'\n\n'+t.slice(st,st+N)+(t.length>st+N?'\n...[aur hai: read_webpage start='+(st+N)+' dekho]':'');
 }
@@ -985,7 +1002,7 @@ var CORE_TOOLS=['godot_new','web_search','read_webpage','research','calculator',
 var fsRootName=(A&&A.fsRoot)?A.fsRoot():'';
 var FSD={};
 var NOROOT='Workspace folder abhi chuna nahi hai. User ko Settings > Workspace mein "Folder chuno" dabana hoga.';
-var PERM_LABEL={web:['Internet / websites','Search karna, pages padhna'],read:['Files padhna','Workspace ki files list aur read'],write:['Files likhna / edit','Nayi file, edit, project banana'],delete:['Delete / rename','Files hataana ya naam badalna'],download:['Downloads','Internet se file workspace mein save'],system:['Terminal / app install','Shell command chalana, APK kholna (hamesha poochta hai)']};
+var PERM_LABEL={web:['Internet / websites','Search karna, pages padhna'],read:['Files padhna','Workspace ki files list aur read'],write:['Files likhna / edit','Nayi file, edit, project banana'],delete:['Delete / rename','Files hataana ya naam badalna'],download:['Downloads','Internet se file workspace mein save'],system:['Terminal / app install','Shell command chalana, APK kholna (hamesha poochta hai)'],device:['Screen control','App kholna, screenshot lena, tap/type/swipe karna']};
 var FILE_TOOLS=['godot_new','unzip_file','polyhaven_model','open_file','fs_list','fs_read','fs_write','fs_append','fs_edit','fs_mkdir','fs_delete','fs_rename','fs_search','project_create','download_file'];
 window.__fsRoot=function(n){fsRootName=n||'';renderWorkspace();toast('Workspace folder set: '+n)};
 window.__fsdl=function(id,type,done,total,msg){var d=FSD[id];if(!d)return;
@@ -999,7 +1016,7 @@ function cleanPath(p){p=String(p==null?'':p).replace(/\\/g,'/').replace(/^[a-zA-
 function pv(s,n){s=String(s);return s.length>n?s.slice(0,n)+'\n...':s}
 function askPerm(cat,title,detail){
  var mode=(S.perms&&S.perms[cat])||PERM_DEF[cat]||'ask';
- if(cat==='system'&&mode==='allow')mode='ask';
+ if((cat==='system'||cat==='device')&&mode==='allow')mode='ask';
  if(mode==='allow')return Promise.resolve(true);
  if(mode==='deny')return Promise.resolve(false);
  return new Promise(function(res){
@@ -1007,7 +1024,7 @@ function askPerm(cat,title,detail){
   o.style.cssText='position:fixed;left:0;right:0;top:0;bottom:0;z-index:90;background:rgba(0,0,0,.62);display:flex;align-items:flex-end';
   var b=document.createElement('div');
   b.style.cssText='width:100%;background:#15151c;border-top:1px solid rgba(255,255,255,.12);border-radius:20px 20px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom,0px));color:#eee';
-  b.innerHTML='<div style="font-weight:650;margin-bottom:4px">'+esc(title)+'</div><div style="font-size:11.5px;opacity:.6;margin-bottom:8px">Permission: '+esc((PERM_LABEL[cat]||[cat])[0])+'</div><pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;opacity:.85;max-height:32vh;overflow:auto;margin:0 0 14px;font-family:inherit">'+esc(detail||'')+'</pre><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-r="1">Allow</button>'+(cat==='system'?'':'<button class="btn ghost sm" data-r="2">Hamesha allow</button>')+'<button class="btn danger sm" data-r="0">Deny</button></div>';
+  b.innerHTML='<div style="font-weight:650;margin-bottom:4px">'+esc(title)+'</div><div style="font-size:11.5px;opacity:.6;margin-bottom:8px">Permission: '+esc((PERM_LABEL[cat]||[cat])[0])+'</div><pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;opacity:.85;max-height:32vh;overflow:auto;margin:0 0 14px;font-family:inherit">'+esc(detail||'')+'</pre><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-r="1">Allow</button>'+((cat==='system'||cat==='device')?'':'<button class="btn ghost sm" data-r="2">Hamesha allow</button>')+'<button class="btn danger sm" data-r="0">Deny</button></div>';
   var done=false;
   function fin(v,always){if(done)return;done=true;if(always){S.perms[cat]='allow';saveS();renderWorkspace()}o.remove();res(v)}
   b.addEventListener('click',function(e){var x=e.target.closest('button');if(!x)return;var r=x.getAttribute('data-r');fin(r!=='0',r==='2')});
@@ -1276,7 +1293,7 @@ function renderWorkspace(){
  var e=$('#fsName');if(!e)return;
  e.textContent=fsRootName||'Koi folder nahi chuna';
  $('#permList').innerHTML=Object.keys(PERM_LABEL).map(function(k){var v=(S.perms&&S.perms[k])||PERM_DEF[k];
-  return '<div class="tl" style="padding:6px 0"><div style="flex:1"><label>'+PERM_LABEL[k][0]+'</label><small style="display:block;color:var(--mut);font-size:11.5px">'+PERM_LABEL[k][1]+'</small></div><select class="inp" style="width:auto;padding:6px 8px" data-perm="'+k+'">'+(k==='system'?['ask','deny']:['ask','allow','deny']).map(function(o){return '<option value="'+o+'"'+(o===v?' selected':'')+'>'+({ask:'Poochho',allow:'Allow',deny:'Deny'})[o]+'</option>'}).join('')+'</select></div>'}).join('');
+  return '<div class="tl" style="padding:6px 0"><div style="flex:1"><label>'+PERM_LABEL[k][0]+'</label><small style="display:block;color:var(--mut);font-size:11.5px">'+PERM_LABEL[k][1]+'</small></div><select class="inp" style="width:auto;padding:6px 8px" data-perm="'+k+'">'+((k==='system'||k==='device')?['ask','deny']:['ask','allow','deny']).map(function(o){return '<option value="'+o+'"'+(o===v?' selected':'')+'>'+({ask:'Poochho',allow:'Allow',deny:'Deny'})[o]+'</option>'}).join('')+'</select></div>'}).join('');
 }
 function renderSkills(){
  var e=$('#skillList');if(!e)return;
@@ -1343,6 +1360,12 @@ var TOOLS={
  unit_convert:{label:'Unit convert',icon:'refresh',desc:'unit_convert {"value": number, "from": string, "to": string} - convert length, weight, volume, speed, temperature, data size, time',arg:function(a){return a.value+' '+a.from+' > '+a.to},run:function(a){return Promise.resolve(unitConvert(a))}},
  forget:{label:'Forget',icon:'trash',desc:'forget {"query": string} - delete saved memory items that contain this text (only if the user asks)',arg:function(a){return a.query},run:function(a){var q=String(a.query||'').toLowerCase().trim();if(!q)throw new Error('empty query');var n=memory.length;memory=memory.filter(function(m){return m.text.toLowerCase().indexOf(q)<0});LS.set('memory',memory);return Promise.resolve('Removed '+(n-memory.length)+' memory item(s)')}},
  clipboard:{label:'Clipboard',icon:'copy',desc:'clipboard {"text": string} - copy text to the phone clipboard',arg:function(a){return String(a.text||'').slice(0,40)},run:function(a){var t=String(a.text||'');if(!t)throw new Error('empty text');if(A&&A.copy)A.copy(t);else if(navigator.clipboard)navigator.clipboard.writeText(t);return Promise.resolve('Copied to clipboard')}}
+ ,open_app:{label:'Open app',icon:'phone',desc:'open_app {"app": string} - find and open an app already installed on the phone by its name (e.g. "Godot")',arg:function(a){return a.app},run:function(a){return gate('device','App kholna: '+a.app,'').then(function(){return screenCmd('launch',{app:a.app})})}}
+ ,screen_enable:{label:'Enable screen control',icon:'settings',desc:'screen_enable {} - if screen_look/screen_tap/screen_type say screen control is off, call this once to open Accessibility settings so the user can turn it on',arg:function(){return ''},run:function(){return screenCmd('enable_prompt',{})}}
+ ,screen_look:{label:'Look at screen',icon:'page',desc:'screen_look {} - take a screenshot of whatever is on screen right now (e.g. the Godot editor) so you can see it and decide the next action; needs screen control ON (see screen_enable) and a vision-capable model',arg:function(){return ''},run:function(){return gate('device','Screenshot lena (screen dekhna)','').then(function(){return screenCmd('shot',{}).then(function(b64){lastScreenImg=b64;return 'Screenshot le liya, image neeche attach hai. Usme jo dikh raha hai uske hisaab se agla step decide karo (screen_tap/screen_type/screen_swipe).'})})}}
+ ,screen_tap:{label:'Tap screen',icon:'bolt',desc:'screen_tap {"x": number, "y": number} - tap the screen at pixel coordinates from the last screen_look screenshot (same width/height)',arg:function(a){return a.x+','+a.y},run:function(a){return screenCmd('tap',{x:a.x,y:a.y})}}
+ ,screen_type:{label:'Type on screen',icon:'code',desc:'screen_type {"text": string} - type text into whichever field is currently focused/editable on screen (tap it first with screen_tap if needed)',arg:function(a){return String(a.text||'').slice(0,40)},run:function(a){return screenCmd('type',{text:a.text})}}
+ ,screen_swipe:{label:'Swipe screen',icon:'refresh',desc:'screen_swipe {"x1":number,"y1":number,"x2":number,"y2":number} - swipe/drag from one point to another (scrolling, dragging panels)',arg:function(a){return a.x1+','+a.y1+' -> '+a.x2+','+a.y2},run:function(a){return screenCmd('swipe',{x1:a.x1,y1:a.y1,x2:a.x2,y2:a.y2})}}
 
 };
 Object.assign(TOOLS,NEWTOOLS);
@@ -1351,7 +1374,7 @@ function enabledTools(){return Object.keys(TOOLS).filter(function(k){return S.to
 /* ---------- agent ---------- */
 function sysPrompt(noTools){
  var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
- var p='You are AI Agent, a powerful personal assistant running inside an Android app, powered by the user\'s own local model. Be accurate, direct and genuinely useful. Use Markdown only when it helps. Current date/time: '+new Date().toString()+' ('+tz+').\n';
+ var p='You are AI Agent, a powerful personal assistant running inside an Android app, powered by the user\'s own local model. Be accurate, direct and genuinely useful. Talk in a warm, casual, friendly way, like a close friend chatting - not stiff or robotic - while staying honest and useful. Use Markdown only when it helps. Current date/time: '+new Date().toString()+' ('+tz+').\n';
  var L={auto:'Reply in the same language the user writes. If they write Hinglish (Hindi in Roman letters), reply in natural Hinglish.',hinglish:'Always reply in natural Hinglish (Hindi written in Roman letters).',hindi:'Always reply in Hindi (Devanagari script).',english:'Always reply in English.'};
  p+=L[S.lang]||L.auto;if(S.profile==='agent1')if(isA1())p=p.replace('You are AI Agent','You are Agent 1');
  if(memory.length)p+='\n\nThings you know about the user:\n'+memory.slice(-30).map(function(m){return '- '+m.text}).join('\n');
@@ -1372,7 +1395,11 @@ function history(chat){
  ms.forEach(function(m){
   if(m.role==='user')out.push({role:'user',content:m.content});
   else if(m.role==='assistant'){var c=m.content.replace(/<think>[\s\S]*?(<\/think>|$)/g,'').trim();if(c)out.push({role:'assistant',content:c})}
-  else if(m.role==='tool')out.push({role:'user',content:'<tool_result name="'+m.tool.name+'">\n'+m.content+'\n</tool_result>\nUse this result to continue. If you have enough, give the final answer to the user now.'});
+  else if(m.role==='tool'){
+   var tr='<tool_result name="'+m.tool.name+'">\n'+m.content+'\n</tool_result>\nUse this result to continue. If you have enough, give the final answer to the user now.';
+   if(m.img&&S.provider==='openai')out.push({role:'user',content:[{type:'text',text:tr},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+m.img}}]});
+   else out.push({role:'user',content:tr});
+  }
  });
  while(out.length&&out[0].role!=='user')out.shift();
  return out;
@@ -1400,6 +1427,7 @@ async function runAgent(chat){
     devNote='';refreshHeader();
     if(/^ASK:/i.test(pl)){var qm={role:'assistant',content:pl.replace(/^ASK:\s*/i,''),ts:Date.now()};chat.msgs.push(qm);upsert(qm);return}
     curPlan=pl;
+    if(pl&&pl.trim()){var pm={role:'tool',content:pl.trim(),tool:{name:'plan',args:{},status:'ok'}};chat.msgs.push(pm);upsert(pm);scrollEnd()}
    }
   }
   for(var step=0;step<=max;step++){
@@ -1420,7 +1448,9 @@ async function runAgent(chat){
     var key=call.name+JSON.stringify(call.args||{});
     if(seen[key]&&call.name!=='get_datetime')throw new Error('You already ran this exact call. Use the earlier result and give the final answer now.');
     seen[key]=1;
+    lastScreenImg='';
     tm.content=String(await T.run(call.args||{})).slice(0,S.provider==='device'?3000:9000);tm.tool.status='ok';
+    if(call.name==='screen_look'&&lastScreenImg){tm.img=lastScreenImg;lastScreenImg=''}
    }catch(e){tm.content='Error: '+(e.message||e);tm.tool.status='err'}
    upsert(tm);persist();
   }
@@ -1455,7 +1485,7 @@ function upsert(m){
  }
  if(m.role==='user'){el.querySelector('.bub').textContent=m.content}
  else if(m.role==='tool'){
-  var T=TOOLS[m.tool.name]||{label:m.tool.name,icon:'bolt'},a=m.tool.args||{},as=T.arg?T.arg(a):'';
+  var T=TOOLS[m.tool.name]||(m.tool.name==='plan'?{label:'Plan',icon:'spark'}:{label:m.tool.name,icon:'bolt'}),a=m.tool.args||{},as=T.arg?T.arg(a):'';
   el.className='tool '+m.tool.status;
   el.querySelector('.ti').innerHTML=svg(T.icon);el.querySelector('b').textContent=T.label;el.querySelector('.ta').textContent=as||'';
   el.querySelector('.ts').innerHTML=m.tool.status==='ok'?svg('check'):m.tool.status==='err'?svg('x'):'';
