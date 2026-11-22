@@ -56,6 +56,7 @@ import com.google.mediapipe.tasks.genai.llminference.ProgressListener;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -204,6 +205,41 @@ public class MainActivity extends Activity {
 				@Override
 				public void run() {
 					doScreenCmd(id, cmd, argsJson);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void termuxRun(final String id, final String cmd, final boolean background) {
+			pool.execute(new Runnable() {
+				@Override
+				public void run() {
+					doTermuxRun(id, cmd, background);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public boolean hasAllFilesAccess() {
+			return Build.VERSION.SDK_INT < 30 || Environment.isExternalStorageManager();
+		}
+
+		@JavascriptInterface
+		public void openAllFilesAccessSettings() {
+			mainHandler.post(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+						i.setData(android.net.Uri.parse("package:" + getPackageName()));
+						i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+						startActivity(i);
+					} catch (Exception e) {
+						try {
+							startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+						} catch (Exception ignored) {
+						}
+					}
 				}
 			});
 		}
@@ -1384,6 +1420,86 @@ public class MainActivity extends Activity {
 		} catch (Exception e) {
 			screenEvt(id, "err", e.getMessage() == null ? String.valueOf(e) : e.getMessage());
 		}
+	}
+
+	// ---------- Termux bridge (real shell commands via the user's own Termux app: javac, gradle, pkg install, etc.) ----------
+	private void termuxEvt(String id, String type, String data) {
+		js("window.__termux&&window.__termux(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data == null ? "" : data) + ")");
+	}
+
+	private void doTermuxRun(String id, String cmd, boolean background) {
+		try {
+			try {
+				getPackageManager().getPackageInfo("com.termux", 0);
+			} catch (PackageManager.NameNotFoundException nf) {
+				termuxEvt(id, "err", "Termux installed nahi hai. F-Droid se 'Termux' install karo (Play Store wala purana/band ho chuka hai).");
+				return;
+			}
+			if (Build.VERSION.SDK_INT >= 30 && !Environment.isExternalStorageManager()) {
+				termuxEvt(id, "err", "'All files access' permission nahi hai - screen_enable jaisa hi, isko bhi ek baar manually on karna padega. Settings mein jaake AI Agent ko 'All files access' do (ya terminal tool se 'enable_storage' chalao).");
+				return;
+			}
+			File resultDir = new File(Environment.getExternalStorageDirectory(), "Download/ai_agent_termux");
+			resultDir.mkdirs();
+			long before = System.currentTimeMillis() - 2000;
+
+			Intent intent = new Intent();
+			intent.setClassName("com.termux", "com.termux.app.RunCommandService");
+			intent.setAction("com.termux.RUN_COMMAND");
+			intent.putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash");
+			intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{"-c", cmd + " > \"" + resultDir.getAbsolutePath() + "/res_" + id + ".txt\" 2>&1; echo EXIT:$? >> \"" + resultDir.getAbsolutePath() + "/res_" + id + ".txt\""});
+			intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home");
+			intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
+			intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0");
+			startForegroundServiceCompat(intent);
+
+			File target = new File(resultDir, "res_" + id + ".txt");
+			int maxWaitSec = background ? 240 : 30;
+			boolean done = false;
+			for (int i = 0; i < maxWaitSec * 2; i++) {
+				try {
+					Thread.sleep(500);
+				} catch (InterruptedException ignored) {
+				}
+				if (target.exists() && target.lastModified() >= before) {
+					String content = readSmallFile(target);
+					if (content.contains("EXIT:")) {
+						done = true;
+						break;
+					}
+				}
+			}
+			if (!target.exists()) {
+				termuxEvt(id, "err", "Termux se koi response nahi mila. Check karo: Termux mein ~/.termux/termux.properties mein 'allow-external-apps=true' hai (phir Termux restart), aur Android Settings > Apps > AI Agent > Permissions mein 'Run commands in Termux' allowed hai.");
+				return;
+			}
+			String out = readSmallFile(target);
+			target.delete();
+			if (!done) out += "\n[Note: itne time (" + maxWaitSec + "s) mein command poora khatam hone ka confirm nahi mila - lambi command (build/install) ho to background=true use karo aur dubara check karo]";
+			termuxEvt(id, "ok", out);
+		} catch (Exception e) {
+			termuxEvt(id, "err", "Termux exec fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+		}
+	}
+
+	private void startForegroundServiceCompat(Intent intent) {
+		startService(intent);
+	}
+
+	private String readSmallFile(File f) {
+		StringBuilder sb = new StringBuilder();
+		try {
+			BufferedReader br = new BufferedReader(new FileReader(f));
+			String line;
+			int n = 0;
+			while ((line = br.readLine()) != null && n < 6000) {
+				sb.append(line).append('\n');
+				n++;
+			}
+			br.close();
+		} catch (Exception ignored) {
+		}
+		return sb.toString();
 	}
 
 	// ---------- Agent's own headless browser (real WebView: JS runs, login cookies reused) ----------
