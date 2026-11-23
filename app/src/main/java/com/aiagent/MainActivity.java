@@ -28,6 +28,8 @@ import android.os.StatFs;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.media.MediaPlayer;
+import android.media.MediaRecorder;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
@@ -77,6 +79,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MainActivity extends Activity {
 
 	private static final int REQ_AUDIO = 77;
+	private static final int REQ_AUDIO_VOICE = 78;
+	private String pendingVoiceRecordId;
 	private static final int REQ_PICK = 78;
 	private static final int REQ_TREE = 79;
 	private static final String UA = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
@@ -87,6 +91,9 @@ public class MainActivity extends Activity {
 	private final Map<String, HttpURLConnection> conns = new ConcurrentHashMap<>();
 
 	private TextToSpeech tts;
+	private MediaRecorder voiceRecorder;
+	private String voiceRecordPath;
+	private MediaPlayer elevenPlayer;
 	private boolean ttsReady = false;
 	private String pendingSpeech = null;
 	private String pendingSpeechLang = "en-IN";
@@ -205,6 +212,79 @@ public class MainActivity extends Activity {
 				@Override
 				public void run() {
 					doScreenCmd(id, cmd, argsJson);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void voiceRecordStart(final String id) {
+			runOnUiThread(new Runnable() {
+				@Override
+				public void run() {
+					if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+						pendingVoiceRecordId = id;
+						requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO_VOICE);
+						return;
+					}
+					doVoiceRecordStart(id);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void voiceRecordStop(final String id) {
+			runOnUiThread(new Runnable() {
+				@Override
+				public void run() {
+					doVoiceRecordStop(id);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void elevenCloneVoice(final String id, final String apiKey, final String name) {
+			pool.execute(new Runnable() {
+				@Override
+				public void run() {
+					doElevenClone(id, apiKey, name);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void elevenSpeak(final String id, final String apiKey, final String voiceId, final String text) {
+			pool.execute(new Runnable() {
+				@Override
+				public void run() {
+					doElevenSpeak(id, apiKey, voiceId, text);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void elevenStopSpeak() {
+			runOnUiThread(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						if (elevenPlayer != null) {
+							elevenPlayer.stop();
+							elevenPlayer.release();
+							elevenPlayer = null;
+						}
+					} catch (Exception ignored) {
+					}
+					js("window.__tts&&window.__tts('end')");
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void logError(final String text) {
+			pool.execute(new Runnable() {
+				@Override
+				public void run() {
+					doLogError(text);
 				}
 			});
 		}
@@ -1422,6 +1502,227 @@ public class MainActivity extends Activity {
 		}
 	}
 
+	// ---------- Error log: save every error straight into the phone's public Downloads folder ----------
+	private void doLogError(String text) {
+		try {
+			String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new java.util.Date());
+			String line = "\n----- " + stamp + " -----\n" + text + "\n";
+			android.content.ContentResolver cr = getContentResolver();
+			android.net.Uri collection = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+			android.net.Uri existing = null;
+			Cursor c = cr.query(collection, new String[]{android.provider.MediaStore.MediaColumns._ID},
+					android.provider.MediaStore.MediaColumns.DISPLAY_NAME + "=?", new String[]{"ai_agent_errors.txt"}, null);
+			if (c != null) {
+				if (c.moveToFirst()) {
+					long cid = c.getLong(0);
+					existing = android.content.ContentUris.withAppendedId(collection, cid);
+				}
+				c.close();
+			}
+			android.net.Uri uri = existing;
+			if (uri == null) {
+				android.content.ContentValues cv = new android.content.ContentValues();
+				cv.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "ai_agent_errors.txt");
+				cv.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+				uri = cr.insert(collection, cv);
+			}
+			if (uri == null) return;
+			OutputStream os = cr.openOutputStream(uri, existing != null ? "wa" : "w");
+			if (os != null) {
+				os.write(line.getBytes("UTF-8"));
+				os.close();
+			}
+		} catch (Exception ignored) {
+		}
+	}
+
+	// ---------- User's own voice: record + clone (ElevenLabs) so the agent can speak in the user's actual voice ----------
+	private void voiceEvt(String id, String type, String data) {
+		js("window.__voice&&window.__voice(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data == null ? "" : data) + ")");
+	}
+
+	private void doVoiceRecordStart(String id) {
+		try {
+			if (voiceRecorder != null) {
+				try {
+					voiceRecorder.release();
+				} catch (Exception ignored) {
+				}
+				voiceRecorder = null;
+			}
+			voiceRecordPath = getCacheDir().getAbsolutePath() + "/voice_sample_" + id + ".m4a";
+			voiceRecorder = Build.VERSION.SDK_INT >= 31 ? new MediaRecorder(this) : new MediaRecorder();
+			voiceRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+			voiceRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+			voiceRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+			voiceRecorder.setAudioEncodingBitRate(128000);
+			voiceRecorder.setAudioSamplingRate(44100);
+			voiceRecorder.setOutputFile(voiceRecordPath);
+			voiceRecorder.prepare();
+			voiceRecorder.start();
+			voiceEvt(id, "ok", "recording");
+		} catch (Exception e) {
+			voiceEvt(id, "err", "Recording start fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+		}
+	}
+
+	private void doVoiceRecordStop(String id) {
+		try {
+			if (voiceRecorder == null) {
+				voiceEvt(id, "err", "Recording chal hi nahi rahi thi");
+				return;
+			}
+			try {
+				voiceRecorder.stop();
+			} catch (Exception stopErr) {
+				voiceEvt(id, "err", "Recording bahut chhoti thi, dubara try karo (kam se kam 10-15 second bolo)");
+				try {
+					voiceRecorder.release();
+				} catch (Exception ignored) {
+				}
+				voiceRecorder = null;
+				return;
+			}
+			voiceRecorder.release();
+			voiceRecorder = null;
+			voiceEvt(id, "ok", voiceRecordPath);
+		} catch (Exception e) {
+			voiceEvt(id, "err", "Recording stop fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+		}
+	}
+
+	private void doElevenClone(String id, String apiKey, String name) {
+		HttpURLConnection conn = null;
+		try {
+			File audio = new File(voiceRecordPath == null ? "" : voiceRecordPath);
+			if (!audio.exists() || audio.length() < 1000) {
+				voiceEvt(id, "err", "Pehle thodi der (kam se kam 15-20 second) recording karo, phir clone karo");
+				return;
+			}
+			String boundary = "----AIAgentBoundary" + System.currentTimeMillis();
+			URL url = new URL("https://api.elevenlabs.io/v1/voices/add");
+			conn = (HttpURLConnection) url.openConnection();
+			conn.setRequestMethod("POST");
+			conn.setDoOutput(true);
+			conn.setConnectTimeout(20000);
+			conn.setReadTimeout(60000);
+			conn.setRequestProperty("xi-api-key", apiKey);
+			conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+			OutputStream os = conn.getOutputStream();
+			os.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\n" + (name == null || name.length() == 0 ? "My Voice" : name) + "\r\n").getBytes("UTF-8"));
+			os.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"sample.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n").getBytes("UTF-8"));
+			InputStream fis = new java.io.FileInputStream(audio);
+			byte[] buf = new byte[8192];
+			int n;
+			while ((n = fis.read(buf)) > 0) os.write(buf, 0, n);
+			fis.close();
+			os.write(("\r\n--" + boundary + "--\r\n").getBytes("UTF-8"));
+			os.flush();
+			os.close();
+			int code = conn.getResponseCode();
+			InputStream respStream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
+			String resp = readAll(respStream);
+			if (code >= 200 && code < 300) {
+				JSONObject jo = new JSONObject(resp);
+				String voiceId = jo.optString("voice_id", "");
+				if (voiceId.length() == 0) {
+					voiceEvt(id, "err", "Clone hua par voice_id nahi mila: " + resp);
+				} else {
+					voiceEvt(id, "ok", voiceId);
+				}
+			} else {
+				voiceEvt(id, "err", "ElevenLabs error " + code + ": " + resp);
+			}
+		} catch (Exception e) {
+			voiceEvt(id, "err", "Clone fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+		} finally {
+			if (conn != null) conn.disconnect();
+		}
+	}
+
+	private void doElevenSpeak(String id, String apiKey, String voiceId, String text) {
+		HttpURLConnection conn = null;
+		try {
+			URL url = new URL("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId);
+			conn = (HttpURLConnection) url.openConnection();
+			conn.setRequestMethod("POST");
+			conn.setDoOutput(true);
+			conn.setConnectTimeout(15000);
+			conn.setReadTimeout(60000);
+			conn.setRequestProperty("xi-api-key", apiKey);
+			conn.setRequestProperty("Content-Type", "application/json");
+			conn.setRequestProperty("Accept", "audio/mpeg");
+			JSONObject body = new JSONObject();
+			body.put("text", text);
+			body.put("model_id", "eleven_multilingual_v2");
+			OutputStream os = conn.getOutputStream();
+			os.write(body.toString().getBytes("UTF-8"));
+			os.close();
+			int code = conn.getResponseCode();
+			if (code < 200 || code >= 300) {
+				String err = readAll(conn.getErrorStream());
+				voiceEvt(id, "err", "ElevenLabs TTS error " + code + ": " + err);
+				return;
+			}
+			final File out = new File(getCacheDir(), "eleven_tts_" + id + ".mp3");
+			FileOutputStream fos = new FileOutputStream(out);
+			InputStream is = conn.getInputStream();
+			byte[] buf = new byte[8192];
+			int n;
+			while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+			fos.close();
+			is.close();
+			mainHandler.post(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						if (elevenPlayer != null) {
+							try {
+								elevenPlayer.release();
+							} catch (Exception ignored) {
+							}
+						}
+						elevenPlayer = new MediaPlayer();
+						elevenPlayer.setDataSource(out.getAbsolutePath());
+						elevenPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+							@Override
+							public void onCompletion(MediaPlayer mp) {
+								js("window.__tts&&window.__tts('end')");
+							}
+						});
+						elevenPlayer.prepare();
+						elevenPlayer.start();
+						js("window.__tts&&window.__tts('start')");
+					} catch (Exception e) {
+						voiceEvt(id, "err", "Playback fail: " + e.getMessage());
+					}
+				}
+			});
+		} catch (Exception e) {
+			voiceEvt(id, "err", "TTS fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+		} finally {
+			if (conn != null) conn.disconnect();
+		}
+	}
+
+	private String readAll(InputStream is) {
+		if (is == null) return "";
+		try {
+			BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+			StringBuilder sb = new StringBuilder();
+			String line;
+			int n = 0;
+			while ((line = br.readLine()) != null && n < 3000) {
+				sb.append(line);
+				n++;
+			}
+			br.close();
+			return sb.toString();
+		} catch (Exception e) {
+			return "";
+		}
+	}
+
 	// ---------- Termux bridge (real shell commands via the user's own Termux app: javac, gradle, pkg install, etc.) ----------
 	private void termuxEvt(String id, String type, String data) {
 		js("window.__termux&&window.__termux(" + JSONObject.quote(id) + "," + JSONObject.quote(type) + "," + JSONObject.quote(data == null ? "" : data) + ")");
@@ -1750,6 +2051,14 @@ public class MainActivity extends Activity {
 				startListen(pendingListenLang);
 			} else {
 				js("window.__sttState&&window.__sttState('err:permission')");
+			}
+		} else if (requestCode == REQ_AUDIO_VOICE) {
+			String id = pendingVoiceRecordId;
+			pendingVoiceRecordId = null;
+			if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+				doVoiceRecordStart(id);
+			} else {
+				voiceEvt(id, "err", "Microphone permission allow nahi kiya");
 			}
 		}
 	}
