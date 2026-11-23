@@ -313,16 +313,45 @@ input[type=range]{width:100%;accent-color:#8b5cf6;height:28px}
     <div class="sec"><h3>Voice</h3><div class="card">
       <div class="row h"><label>Read replies aloud<small>Jawab khatam hone par bolega</small></label><span class="sw"><input type="checkbox" data-s="speak"><i></i></span></div>
       <div class="row"><label>Voice language</label><select class="inp" data-s="voiceLang"><option value="hi-IN">Hindi (hi-IN)</option><option value="en-IN">English India (en-IN)</option><option value="en-US">English US (en-US)</option></select></div>
-      <div class="row"><label>Kiski awaaz mein bole</label><select class="inp" id="voiceProv" data-s="voiceProvider"><option value="phone">Phone ki TTS voice (default)</option><option value="eleven">Meri apni cloned awaaz (ElevenLabs)</option></select></div>
+      <div class="row"><label>Kiski awaaz mein bole</label><select class="inp" id="voiceProv" data-s="voiceProvider"><option value="real">Real Human Voice (Free - No API Key) ✨</option><option value="eleven">Meri apni cloned awaaz (ElevenLabs)</option><option value="phone">Phone ki TTS voice (Built-in)</option></select></div>
+      <div class="row" id="edgeRow" style="display:none">
+        <small style="color:var(--mut);font-size:12px">✨ <b>100% Free Real Human Voice</b> - Koi API key nahi chahiye! Ultra-realistic neural speech bina kisi quota ya recharge ke chalegi.</small>
+        <div class="row" style="margin-top:8px"><label>Awaaz chuno</label><select class="inp" id="edgeVoice" data-s="edgeVoice">
+          <option value="hi-IN-SwaraNeural">Swara (Hindi Female - Sweet & Natural)</option>
+          <option value="hi-IN-MadhurNeural">Madhur (Hindi Male - Clear & Professional)</option>
+          <option value="en-IN-NeerjaExpressiveNeural">Neerja (Indian English Female - Expressive)</option>
+          <option value="en-IN-PrabhatNeural">Prabhat (Indian English Male - Friendly)</option>
+          <option value="en-US-JennyNeural">Jenny (US English Female - Studio Quality)</option>
+          <option value="en-US-GuyNeural">Guy (US English Male - Casual)</option>
+          <option value="ur-PK-UzmaNeural">Uzma (Urdu Female - Natural)</option>
+        </select></div>
+        <div class="row"><label>Speed: <span id="vERate">1.0x</span></label><input class="rng" id="edgeRate" data-s="edgeRate" type="range" min="-30" max="40" step="5" value="0"></input></div>
+        <div class="row"><label>Pitch: <span id="vEPitch">Normal</span></label><input class="rng" id="edgePitch" data-s="edgePitch" type="range" min="-20" max="20" step="5" value="0"></input></div>
+        <button class="btn ghost sm" id="btnEdgeTest" style="margin-top:8px"><i data-i="volume"></i>Test Real Voice (Suno)</button>
+      </div>
       <div class="row" id="elevenRow" style="display:none">
-        <small style="color:var(--mut);font-size:12px">ElevenLabs API key chahiye (elevenlabs.io par free account bana ke Profile se key lo). Phir neeche "Record" se 30-60 second clearly bolo (jaise "Hello, mera naam ... hai, main..."), phir "Clone karo" dabao.</small>
+        <small style="color:var(--mut);font-size:12px">ElevenLabs API key chahiye (elevenlabs.io par free account bana ke Profile se key lo). Girlfriend-style soft female awaaz chahiye to neeche "Existing voices dekho" dabao aur "Female" filter se koi ready-made awaaz chun lo - cloning zaroori nahi hai. Apni hi awaaz chahiye to "Record" se 30-60 second bolo, phir "Clone karo" dabao.</small>
         <input class="inp" id="elevenKey" data-s="elevenKey" type="password" autocomplete="off" placeholder="ElevenLabs API key"></input>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
           <button class="btn sm" id="btnVoiceRec"><i data-i="mic"></i>Record</button>
           <button class="btn ghost sm" id="btnVoiceClone" disabled>Clone karo (meri awaaz)</button>
           <button class="btn ghost sm" id="btnVoiceList">Existing voices dekho</button>
         </div>
+        <div style="display:flex;gap:8px;margin-top:8px" id="voiceGenderFilter">
+          <button class="pill on" data-g="all">All</button>
+          <button class="pill" data-g="female">Female</button>
+          <button class="pill" data-g="male">Male</button>
+        </div>
         <div class="presets" id="voiceList"></div>
+        <div class="row"><label>Awaaz ki quality/speed</label><select class="inp" data-s="elevenModel">
+          <option value="eleven_flash_v2_5">Fast (kam latency)</option>
+          <option value="eleven_turbo_v2_5">Balanced</option>
+          <option value="eleven_multilingual_v2">Best quality (Hindi/Hinglish ke liye best)</option>
+        </select></div>
+        <div class="row"><div class="rv"><label>Warmth / expressiveness</label><b id="vEStyle"></b></div><input type="range" min="0" max="1" step="0.05" data-s="elevenStyle"></div>
+        <div class="row"><div class="rv"><label>Stability (kam = zyada emotional, zyada = steady)</label><b id="vEStab"></b></div><input type="range" min="0" max="1" step="0.05" data-s="elevenStability"></div>
+        <div class="row h"><label>Fail hone par phone ki awaaz par switch<small>Taaki ElevenLabs error aaye to bhi agent bolna band na kare</small></label><span class="sw"><input type="checkbox" data-s="elevenAutoFallback"><i></i></span></div>
+        <button class="btn ghost sm" id="btnVoicePreview">Test awaaz suno</button>
         <div class="cst" id="voiceStatus"></div>
       </div>
     </div></div>
@@ -397,7 +426,7 @@ function paintIcons(root){Array.prototype.forEach.call((root||document).querySel
 /* ---------- storage ---------- */
 var LS={get:function(k,d){try{var v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 var PERM_DEF={web:'allow',read:'allow',write:'ask',delete:'ask',download:'ask',system:'ask',device:'ask'};
-var DEF={provider:(A&&A.llmLoad)?'device':'ollama',devModel:'',devBackend:'cpu',maxNew:512,profile:'',pendingA1:false,hfToken:'',custom:[],customProv:[],baseUrl:'http://127.0.0.1:11434',apiKey:'',model:'',temperature:0.7,agent:true,maxSteps:20,voiceProvider:'phone',elevenKey:'',elevenVoiceId:'',elevenVoiceName:'',
+var DEF={provider:(A&&A.llmLoad)?'device':'ollama',devModel:'',devBackend:'cpu',maxNew:512,profile:'',pendingA1:false,hfToken:'',custom:[],customProv:[],baseUrl:'http://127.0.0.1:11434',apiKey:'',model:'',temperature:0.7,agent:true,maxSteps:20,voiceProvider:'real',edgeVoice:'hi-IN-SwaraNeural',edgePitch:0,edgeRate:0,elevenKey:'',elevenVoiceId:'',elevenVoiceName:'',elevenModel:'eleven_multilingual_v2',elevenStability:0.45,elevenStyle:0.35,elevenAutoFallback:true,
  tools:{web_search:true,read_webpage:true,get_datetime:true,calculator:true,weather:true,device_info:true,remember:true,tasks:true,unit_convert:true,forget:true,clipboard:true,fetch_url:true,research:true,download_file:true,fs_list:true,fs_read:true,fs_write:true,fs_append:true,fs_edit:true,fs_mkdir:true,fs_delete:true,fs_rename:true,fs_search:true,project_create:true,use_skill:true,create_skill:true,godot_new:true,find_assets:true,polyhaven_model:true,unzip_file:true,open_file:true,terminal:false,open_app:true,screen_enable:true,screen_look:true,screen_tap:true,screen_type:true,screen_swipe:true,team_task:true,termux_run:true,storage_enable:true},
  plan:true,a1Url:'',a1Auto:true,a1Key:'',a1Switch:'',keys:{},preset:'',autoModel:false,modelAuto:false,
  lang:'auto',system:'',speak:false,voiceLang:'hi-IN'};
@@ -479,13 +508,42 @@ function voiceCall(method,args){
 }
 function recordMyVoiceStart(){return voiceCall('voiceRecordStart',[])}
 function recordMyVoiceStop(){return voiceCall('voiceRecordStop',[])}
-function cloneMyVoice(name){return voiceCall('elevenCloneVoice',[S.elevenKey,name||'My Voice'])}
-function listElevenVoices(){return voiceCall('elevenListVoices',[S.elevenKey])}
+function cloneMyVoice(name){return voiceCall('elevenCloneVoice',[(S.elevenKey||'').trim(),name||'My Voice'])}
+function listElevenVoices(){return voiceCall('elevenListVoices',[(S.elevenKey||'').trim()])}
+function elevenVoiceSettingsJSON(){
+ return JSON.stringify({model_id:S.elevenModel||'eleven_multilingual_v2',stability:+S.elevenStability||0.45,similarity_boost:0.8,style:+S.elevenStyle||0.35,use_speaker_boost:true});
+}
+var elevenFailStreak=0;
+function previewEdgeVoice(){
+ var sample=(S.voiceLang==='hi-IN')?'Namaste! Main aapka AI assistant hoon, ab meri awaaz bilkul real human jaisi hai!':'Hello! I am your AI assistant, now speaking in a natural human voice!';
+ toast('Real voice load ho rahi hai...');
+ voiceCall('edgeSpeak',[S.edgeVoice||'hi-IN-SwaraNeural',sample,JSON.stringify({pitch:+S.edgePitch||0,rate:+S.edgeRate||0})])
+  .then(function(){toast('Real voice ready!')})
+  .catch(function(e){toast('Voice error: '+e.message);if(A&&A.speak)A.speak(sample,S.voiceLang)});
+}
 function speakNow(text){
  if(!text)return;
- if(S.voiceProvider==='eleven'&&S.elevenKey&&S.elevenVoiceId&&A&&A.elevenSpeak){
-  voiceCall('elevenSpeak',[S.elevenKey,S.elevenVoiceId,text]).catch(function(e){toast('Voice error: '+e.message)});
+ if(S.voiceProvider==='real'&&A&&A.edgeSpeak){
+  voiceCall('edgeSpeak',[S.edgeVoice||'hi-IN-SwaraNeural',text,JSON.stringify({pitch:+S.edgePitch||0,rate:+S.edgeRate||0})]).catch(function(e){
+   if(A&&A.speak){A.speak(text,S.voiceLang)}
+  });
+ }else if(S.voiceProvider==='eleven'&&(S.elevenKey||'').trim()&&S.elevenVoiceId&&A&&A.elevenSpeak){
+  voiceCall('elevenSpeak',[(S.elevenKey||'').trim(),S.elevenVoiceId,text,elevenVoiceSettingsJSON()]).then(function(){elevenFailStreak=0}).catch(function(e){
+   elevenFailStreak++;
+   toast('ElevenLabs voice error: '+e.message);
+   if(S.elevenAutoFallback!==false&&A&&A.speak){A.speak(text,S.voiceLang)}
+   if(elevenFailStreak>=3){toast('ElevenLabs 3 baar fail hui, phone ki awaaz use ho rahi hai');}
+  });
  }else if(A&&A.speak){A.speak(text,S.voiceLang)}
+}
+function previewElevenVoice(){
+ if(!((S.elevenKey||'').trim())){toast('Pehle API key daalo');return}
+ if(!S.elevenVoiceId){toast('Pehle koi voice select karo');return}
+ var sample=(S.voiceLang==='hi-IN')?'Hii jaan, main yahan hoon, bolo kya haal hai?':'Hi, I am right here with you - how are you feeling today?';
+ $('#voiceStatus').textContent='Test ho raha hai...';
+ voiceCall('elevenSpeak',[(S.elevenKey||'').trim(),S.elevenVoiceId,sample,elevenVoiceSettingsJSON()])
+  .then(function(){$('#voiceStatus').textContent='Test awaaz chal rahi hai - pasand aaye to yehi rehne do.'})
+  .catch(function(e){$('#voiceStatus').textContent='Error: '+e.message});
 }
 
 /* ---------- Termux bridge (real shell: javac/gradle/pkg install via user's own Termux app) ---------- */
@@ -1170,8 +1228,8 @@ var BUILTIN_SKILLS=[
  {name:'planner',desc:'break big tasks into steps',text:'Big tasks. Break the work into 3-7 numbered steps, run them one by one with tools, check each result, and finish with a summary of what was done and what is left.'}
 ];
 BUILTIN_SKILLS.push(
- {name:'game_maker',desc:'make a playable game (Godot 4) with planning',text:'Making a game. 1) If the user did not say what kind of game, ask ONE short question with options: 2D platformer, endless runner, top-down shooter, 3D explorer, or their own idea; also touch or keyboard. 2) Tell the user a 4-line plan: game idea, controls, what you will build, what assets you will add. 3) Create the project with godot_new using the closest template (it writes a complete working Godot 4 project). 4) Customise: fs_read main.gd, then change it with fs_edit or fs_write (colors, speeds, enemies, rules, score, any feature the user asked for). Keep valid GDScript 4. 5) If the game needs 3D models or art, load the assets_3d skill. 6) Finish: tell the user to open project.godot in Godot 4 and press Play, and list what you changed.'},
- {name:'godot4',desc:'Godot 4 / GDScript 4 rules and phone setup',text:'Godot 4 rules. GDScript 4: use tabs for indentation, typed vars, @export and @onready, signal.connect(callable), await instead of yield, CharacterBody2D/3D with move_and_slide() (no arguments, velocity is a property), queue_free(), get_tree().reload_current_scene(), Input.get_vector. Never use Godot 3 names (KinematicBody2D, onready, export var, yield). Prefer building nodes in code inside _ready(). Models: load("res://path.gltf").instantiate(). Phone: the Godot 4 Android editor can open and run projects. To install it: research godotengine.org/download/android to find the official APK link, download_file it into the workspace (it is a big file, warn the user), then open_file on the APK; the user must allow install from this app. Then open the project folder in Godot and press Play. If Godot shows errors, ask the user to paste the Output panel text and fix the script.'},
+ {name:'game_maker',desc:'design & build a complete playable Godot 4 game matching user concept with deep research, full mechanics, HUD, mobile touch controls and GDScript 4 code',text:'Game Maker for Godot 4. NEVER force the user into the same 4 old templates. Build whatever specific game they requested (e.g. Car Racing, Zombie Survival, Dungeon RPG, Space Combat, Cricket, Physics Puzzle, Maze, Platformer, Fighting, etc.).\n\nSTEPS:\n1) RESEARCH & ARCHITECTURE PLAN:\n- Carefully analyze the game idea. Think of core player loop, environment/level theme, physics/movement, enemies/challenges, obstacles, win/loss conditions.\n- Mobile Touch AND Keyboard: MUST support BOTH mobile on-screen touch controls (zones/buttons or virtual joystick) AND keyboard (WASD/Arrows/Space) so it plays effortlessly on both phones and PC!\n- Visual Polish: Build rich visual gameplay using Godot 4 drawing (_draw() with draw_rect, draw_circle, draw_polygon, draw_line, or ColorRect, Polygon2D, Line2D) with dynamic colors, level obstacles, and particle effects.\n- Game State & HUD: Title screen -> Active Game with Score/Health/Lives HUD -> Game Over / Victory screen with one-tap Restart.\n2) PROJECT CREATION:\n- Call godot_new with {"name": "<game_name>", "template": "custom"}.\n3) WRITE COMPLETE SCRIPT:\n- Use fs_write to write the COMPLETE, production-ready, bug-free GDScript 4 code into <game_name>/main.gd.\n- Do NOT write lazy placeholders, minimal boxes, or empty stubs. Write the full gameplay logic, player movement, enemy spawning/AI, collision checks, score/health updates, and restart handling.\n4) GDScript 4 RULES:\n- Use CharacterBody2D with move_and_slide() (no arguments in Godot 4, velocity is a property).\n- Use @export, @onready, await get_tree().create_timer().timeout, Callable signals.\n- In _input(event), handle InputEventScreenTouch, InputEventScreenDrag, and InputEventKey.\n5) FINISH:\n- Tell user to open <game_name>/project.godot in Godot 4 and press Play (F5).\n- List controls (touch zones & keyboard) and gameplay features.'},
+ {name:'godot4',desc:'Godot 4 / GDScript 4 engine rules, touch controls, procedural drawing and phone setup',text:'Godot 4 & GDScript 4 Guidelines:\n1. Syntax: CharacterBody2D/3D (velocity property, move_and_slide() with NO parameters). Signals use my_signal.connect(callable). Coroutines use await instead of yield. Use typed variables (var speed: float = 300.0).\n2. Controls for Phone & PC: In _input(event):\n   - Touch: if event is InputEventScreenTouch or event is InputEventScreenDrag: track touches by event.index.\n   - Keyboard: Input.is_action_pressed() or event.is_action_pressed() or event.physical_keycode.\n3. Procedural Graphics: Use _draw() callback with queue_redraw(), or build nodes dynamically: ColorRect, Polygon2D, Line2D, CanvasLayer for HUD.\n4. Game Loop: Maintain state enum: State { TITLE, PLAYING, GAMEOVER, WIN } with restart on tap/space.\n5. Phone Godot 4 Editor: Official Godot 4 Android editor APK can open and run projects directly on Android. To install on phone: download Godot 4 APK from godotengine.org/download/android, install via open_file, then open the workspace folder in Godot.'},
  {name:'build_android',desc:'actually compile/build an Android project into an APK using AndroidIDE on this phone',text:'Building/compiling a real APK. We do not have our own Android SDK/compiler bundled - instead we operate AndroidIDE (if the user has it installed) on screen to do the real build. Steps: 1) screen_enable if screen control is off. 2) open_app {"app":"AndroidIDE"}. 3) screen_look to see the current screen. 4) Find and tap the way to open an existing project / folder (usually a folder icon or "Open project"), then navigate to and open the project folder the user means (ask them for its exact path/name if unclear). 5) Wait a few seconds (it can be useful to screen_look again after a short pause) for Gradle sync to finish - do not tap Build while "Syncing" is shown. 6) Find and tap the Build/Run action (often a play/hammer icon in the toolbar or a build menu); if a device/variant picker appears choose Debug / this device. 7) screen_look repeatedly (a few times, a little apart) until the Build/Run output panel clearly shows "BUILD SUCCESSFUL" or an error. 8) On success, use fs_search for "*.apk" (or look under the project\'s app/build/outputs/apk/debug folder) to find the built file, then tell the user the exact path (and offer open_file to install it if they want). On failure, read the error text from the screen (screen_look) and either fix the code (fs_edit) and retry, or report the exact error to the user. This only works if AndroidIDE (or a similar on-device IDE) is already installed with its build tools set up - we cannot install or set up the Android SDK ourselves.'},
   {name:'build_termux',desc:'actually compile/build a project into a real APK using Termux (real Linux shell, more reliable than screen automation)',text:'Building/compiling via Termux (preferred over build_android when Termux is set up, since it is reliable text output instead of guessing from screenshots). Step 0 (auto-install Termux if missing): if termux_run says Termux is not installed, you CAN get it yourself instead of only telling the user to do it manually: use research/fetch_url on https://github.com/termux/termux-app/releases/latest to find the current release\'s "universal" (or matching) .apk asset link, then download_file that link, then open_file the downloaded apk - the user still has to tap the final "Install" confirmation themselves (Android does not allow any app to silently install another app, that one tap cannot be skipped), but you did the finding+downloading+opening for them. Step 1 (connectivity test): termux_run {"command":"echo ok"} - if it errors about permission or All files access (as opposed to Termux missing, which step 0 handles), tell the user exactly what it said and stop; these remaining ones are one-time things only the user can grant, you cannot do them yourself: in Termux run "echo allow-external-apps=true >> ~/.termux/termux.properties" then restart Termux, grant Android Settings > Apps > AI Agent > Permissions > "Run commands in Termux", and call storage_enable once for all-files access. 2) Check what is already installed: termux_run {"command":"which java gradle aapt2 2>/dev/null; java -version 2>&1; gradle -v 2>&1"}. 3) If something needed is missing, install it (this is the "download necessary files" step) - for a Gradle/Android project: termux_run {"command":"pkg update -y && pkg install -y openjdk-17 gradle","background":true} (can take a few minutes, background:true). For Android SDK command-line tools specifically, these are not in pkg - guide the user that they likely already have an SDK via AndroidIDE at ~/.androidide or similar, or use the SDK bundled by a project\'s local Gradle wrapper (./gradlew) instead of a separately installed gradle. 4) Make sure the project folder is somewhere Termux can see (ask the user to confirm the path, e.g. under ~/storage/shared/... after they have run termux-setup-storage once; our own workspace folder set via fs tools is usually not directly visible to Termux unless it is in shared storage). 5) Run the real build: termux_run {"command":"cd \'<project path>\' && (./gradlew assembleDebug || gradle assembleDebug)","background":true}. 6) Read the output text termux_run returns for "BUILD SUCCESSFUL" or "BUILD FAILED" / error lines; on failure read the actual error, fix the code (fs_edit) and retry; on success the output usually names the apk path under app/build/outputs/apk/debug/ - tell the user that exact path (or termux_run {"command":"find <project path> -name \'*.apk\'"} to locate it).'},
  {name:'assets_3d',desc:'get free 3D models/textures and add them to a game',text:'Getting free assets. 1) find_assets with kind 3d (searches Poly Haven, all CC0). 2) polyhaven_model with the id and folder "<project>/assets/<id>" downloads the glTF and its textures. 3) For other sites use research or fetch_url mode links to find a direct .glb/.gltf/.zip link, then download_file, and unzip_file for zips. Use only CC0 or clearly free licensed assets and note the source in <project>/CREDITS.txt. 4) Use the model: set MODEL_PATH in main.gd (explorer3d template) to res://assets/<id>/<file>.gltf, or instantiate it with load(). 5) Tell the user Godot imports the files the first time the project is opened (wait for the import progress bar).'}
@@ -1182,10 +1240,10 @@ function skillBlock(){
  if(!S.tools.use_skill)return '';
  return '\nSkills (call use_skill with the name to load detailed instructions): '+allSkills().slice(0,16).map(function(s){return s.name+' = '+s.desc}).join('; ')+'.';
 }
-var RULES='\nRules: Do exactly what the user asked, nothing extra. If a key detail is missing (which file, name, folder, content) ask ONE short question instead of guessing. Before changing an existing file read it first (fs_read), then use fs_edit for small changes or fs_write for full rewrites; never delete or overwrite unless asked. If a tool says USER_DENIED stop and tell the user. For online info use research or web_search. To build a project plan the files first, then write them all with project_create. For bigger jobs, and for any game, call use_skill first (game_maker for games). For a genuinely large multi-part job (e.g. a full game with world+player+enemies+UI+sound, or several unrelated features at once) use team_task to split it across workers instead of doing all parts yourself one by one. If the user wants an actual compiled/installable app or APK (not just the project files), try use_skill build_termux first (reliable, real shell via Termux); if Termux is not set up, fall back to use_skill build_android (screen automation of AndroidIDE). When finished say exactly what you did and give the file paths.';
+var RULES='\nRules: Do exactly what the user asked, nothing extra. If a key detail is missing (which file, name, folder, content) ask ONE short question instead of guessing. Before changing an existing file read it first (fs_read), then use fs_edit for small changes or fs_write for full rewrites; never delete or overwrite unless asked. If a tool says USER_DENIED stop and tell the user. For online info use research or web_search. To build a project plan the files first, then write them all with project_create. For bigger jobs, and for any game, call use_skill first (game_maker for games). Design a real, playable, custom game in Godot 4 matching the user's exact vision with full mechanics, HUD, touch/keyboard controls, and win/loss states without repeating old templates. For a genuinely large multi-part job (e.g. a full game with world+player+enemies+UI+sound, or several unrelated features at once) use team_task to split it across workers instead of doing all parts yourself one by one. If the user wants an actual compiled/installable app or APK (not just the project files), try use_skill build_termux first (reliable, real shell via Termux); if Termux is not set up, fall back to use_skill build_android (screen automation of AndroidIDE). When finished say exactly what you did and give the file paths.';
 function needsPlan(t){t=String(t||'');return t.length>45||/(banao|bana do|create|build|make|download|save|file|folder|project|edit|change|badlo|add kar|dhundo|search|research|find|likho|write|delete|rename|skill|game|godot|3d|asset)/i.test(t)}
 async function planPass(chat){
- var ms=[{role:'system',content:'You are the planning step of an AI agent. Read the user request and reply in at most 5 short lines in English. Line 1 "GOAL:" one line restating exactly what the user wants. Then "STEPS:" the numbered steps and tools needed. Available tools: '+enabledTools().join(', ')+'. If a critical detail is missing and cannot be reasonably guessed (which file, which name, which folder, what content), reply ONLY with "ASK: " followed by one short question in the language the user wrote. If the user wants a game or app but did not say what type (genre), 2D or 3D, or controls, reply ONLY with "ASK: " and one short question in the user\'s language offering options: 2D platformer, endless runner, top-down shooter, 3D explorer, puzzle - and touch or keyboard. Do not answer the request itself.'}].concat(history(chat).slice(-4));
+ var ms=[{role:'system',content:'You are the planning step of an AI agent. Read the user request and reply in at most 5 short lines in English. Line 1 "GOAL:" one line restating exactly what the user wants. Then "STEPS:" the numbered steps and tools needed. Available tools: '+enabledTools().join(', ')+'. If a critical detail is missing and cannot be reasonably guessed (which file, which name, which folder, what content), reply ONLY with "ASK: " followed by one short question in the language the user wrote. If the user wants a game or app but the request is completely blank (e.g. just 'game banao' with zero details), reply with 'ASK: ' and ask what kind of game they imagine (racing, shooter, puzzle, adventure, rpg, etc.). If they already gave a game idea (e.g. car racing, cricket, zombie, space, etc.), DO NOT ASK - immediately plan that specific game in detail!'}].concat(history(chat).slice(-4));
  var raw=await chatStream(ms,function(){},ctl.signal);
  return plain(raw).slice(0,500);
 }
@@ -1320,16 +1378,29 @@ var NEWTOOLS={
   return 'Skill "'+n+'" saved.';
  }},
 
- godot_new:{label:'New Godot game',icon:'code',desc:'godot_new {"name": string, "template": "platformer2d"|"runner2d"|"shooter2d"|"explorer3d"} - create a ready-to-run Godot 4 game project (project.godot, scene, script, icon) in the workspace',arg:function(a){return a.name+' ('+a.template+')'},run:async function(a){
+ godot_new:{label:'New Godot game',icon:'code',desc:'godot_new {"name": string, "template": "custom"|"platformer2d"|"runner2d"|"shooter2d"|"explorer3d"|"racing2d"|"rpg2d"|"puzzle2d", "main_gd": string} - create a ready-to-run Godot 4 game project (project.godot with mobile touch emulation, main scene, GDScript, icon) in the workspace',arg:function(a){return a.name+' ('+(a.template||'custom')+')'},run:async function(a){
   needFs();var nm=cleanPath(a.name||'').replace(/\//g,'-').replace(/"/g,'').trim();if(!nm)throw new Error('name required');
-  var t=String(a.template||'').toLowerCase(),key=null;
-  if(GODOT_TPL[t])key=t;else if(/platform/.test(t))key='platformer2d';else if(/run|endless|jump/.test(t))key='runner2d';else if(/shoot|top|arena|survivor/.test(t))key='shooter2d';else if(/3d|explor|walk|adventure/.test(t))key='explorer3d';
-  if(!key)throw new Error('template must be one of: '+Object.keys(GODOT_TPL).join(', '));
-  var T=GODOT_TPL[key],paths=Object.keys(T.files);
-  await gate('write','Godot game project: '+nm,key+' ('+T.desc+') - '+paths.length+' files\n'+paths.map(function(x){return '- '+nm+'/'+x}).join('\n'));
-  paths.forEach(function(x){fsr(A.fsWrite(nm+'/'+x,T.files[x].split('{{NAME}}').join(nm),false))});
-  return 'Godot 4 project "'+nm+'" created from '+key+':\n'+paths.map(function(x){return '- '+nm+'/'+x}).join('\n')+'\nThe user opens '+nm+'/project.godot in Godot 4 and presses Play. Next: customise '+nm+'/main.gd as the user wants (fs_read it first).';
- }},
+  var t=String(a.template||'custom').toLowerCase(),key='custom';
+  if(GODOT_TPL[t])key=t;
+  else if(/platform/.test(t))key='platformer2d';
+  else if(/run|endless|jump/.test(t))key='runner2d';
+  else if(/shoot|top|arena|survivor/.test(t))key='shooter2d';
+  else if(/3d|explor|walk|adventure/.test(t))key='explorer3d';
+  else key='custom';
+  var files={};
+  if(key!=='custom'&&GODOT_TPL[key]){files=Object.assign({},GODOT_TPL[key].files)}
+  else{
+   files['project.godot']='; Engine configuration file.\nconfig_version=5\n\n[application]\n\nconfig/name="'+nm+'"\nrun/main_scene="res://main.tscn"\nconfig/features=PackedStringArray("4.2", "GL Compatibility")\nconfig/icon="res://icon.svg"\n\n[display]\n\nwindow/size/viewport_width=1280\nwindow/size/viewport_height=720\nwindow/stretch/mode="canvas_items"\nwindow/stretch/aspect="keep"\nwindow/handheld/orientation=0\n\n[input_devices]\n\npointing/emulate_touch_from_mouse=true\npointing/emulate_mouse_from_touch=true\n\n[rendering]\n\nrenderer/rendering_method="gl_compatibility"\nrenderer/rendering_method.mobile="gl_compatibility"\ntextures/vram_compression/import_etc2_astc=true\n';
+   files['icon.svg']='<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="124" height="124" x="2" y="2" rx="14" fill="#1b2a47"/><circle cx="64" cy="64" r="32" fill="#4ade80"/><polygon points="56,48 80,64 56,80" fill="#0f172a"/></svg>\n';
+   files['main.tscn']='[gd_scene load_steps=2 format=3]\n\n[ext_resource type="Script" path="res://main.gd" id="1_main"]\n\n[node name="Main" type="Node2D"]\nscript = ExtResource("1_main")\n';
+   files['main.gd']=a.main_gd||('extends Node2D\n# '+nm+' - Godot 4 Custom Game\nfunc _ready() -> void:\n\tRenderingServer.set_default_clear_color(Color(0.12, 0.15, 0.22))\n');
+  }
+  if(a.main_gd){files['main.gd']=a.main_gd}
+  var paths=Object.keys(files);
+  await gate('write','Godot game project: '+nm,key+' ('+paths.length+' files)\n'+paths.map(function(x){return '- '+nm+'/'+x}).join('\n'));
+  paths.forEach(function(x){fsr(A.fsWrite(nm+'/'+x,files[x].split('{{NAME}}').join(nm),false))});
+  return 'Godot 4 project "'+nm+'" created ('+key+'):\n'+paths.map(function(x){return '- '+nm+'/'+x}).join('\n')+'\nThe user opens '+nm+'/project.godot in Godot 4 and presses Play. If needed, write the complete gameplay script into '+nm+'/main.gd with fs_write.';
+ },
  find_assets:{label:'Find assets',icon:'globe',desc:'find_assets {"query": string, "kind": "3d"|"2d"|"audio"|"texture"|"hdri"} - find free CC0 game assets (3d searches Poly Haven directly)',arg:function(a){return a.query},run:async function(a){
   var q=String(a.query||'').trim(),kind=String(a.kind||'3d').toLowerCase();if(!q)throw new Error('query required');
   await gate('web','Free assets dhundna',q+' ('+kind+')');
@@ -1732,9 +1803,10 @@ function fillSettings(){
  var cp=PRESETS.filter(function(x){return x.id&&x.id===S.preset})[0];$('#presetHint').textContent=cp?cp.hint+(Object.keys(S.keys).filter(function(k){return S.keys[k]}).length>1?'  |  Auto: limit aane par doosre saved-key wale provider par khud switch hoga.':''):'';
  $('#toolList').innerHTML=Object.keys(TOOLS).map(function(k){var T=TOOLS[k];return '<div class="tl" style="padding:6px 0"><span class="ti">'+svg(T.icon)+'</span><div><label>'+T.label+'</label></div><span class="sw"><input type="checkbox" data-tool="'+k+'"'+(S.tools[k]?' checked':'')+'><i></i></span></div>'}).join('');
  renderMem();renderTasks();renderWorkspace();renderSkills();$('#a1Url').value=S.a1Url||'';
- $('#elevenRow').style.display=S.voiceProvider==='eleven'?'':'none';
- $('#voiceStatus').textContent=S.elevenVoiceId?('Cloned voice ready: '+(S.elevenVoiceName||S.elevenVoiceId)):'Abhi tak koi voice clone nahi hui';
+ $('#edgeRow').style.display=S.voiceProvider==='real'?'':'none';$('#elevenRow').style.display=S.voiceProvider==='eleven'?'':'none';if($('#vERate'))$('#vERate').textContent=(1+(+S.edgeRate||0)/100).toFixed(2)+'x';if($('#vEPitch'))$('#vEPitch').textContent=(+S.edgePitch||0)>0?('+'+S.edgePitch+'%'):(+S.edgePitch||0)<0?(S.edgePitch+'%'):'Normal';
+ $('#voiceStatus').textContent=S.elevenVoiceId?('Voice ready: '+(S.elevenVoiceName||S.elevenVoiceId)):'Abhi tak koi voice select/clone nahi hui';
  $('#btnVoiceClone').disabled=!(voiceRecPath);
+ $('#vEStyle').textContent=(+S.elevenStyle).toFixed(2);$('#vEStab').textContent=(+S.elevenStability).toFixed(2);
 }
 
 $('#btnBrOpen').addEventListener('click',function(){
@@ -1789,7 +1861,10 @@ $('#sUrl').addEventListener('input',function(){S.baseUrl=this.value;saveS()});
 $('#sKey').addEventListener('input',function(){S.apiKey=this.value.trim();if(S.preset)S.keys[S.preset]=S.apiKey;saveS()});
 $('#sModel').addEventListener('input',function(){S.model=this.value.trim();S.modelAuto=false;saveS();refreshHeader()});
 $('#btnLoad').addEventListener('click',function(){checkConn(true)});
-$('#voiceProv').addEventListener('change',function(){$('#elevenRow').style.display=this.value==='eleven'?'':'none'});
+$('#voiceProv').addEventListener('change',function(){$('#edgeRow').style.display=this.value==='real'?'':'none';$('#elevenRow').style.display=this.value==='eleven'?'':'none'});
+$('#btnEdgeTest').addEventListener('click',previewEdgeVoice);
+$('#edgeRate').addEventListener('input',function(){if($('#vERate'))$('#vERate').textContent=(1+(+this.value)/100).toFixed(2)+'x'});
+$('#edgePitch').addEventListener('input',function(){if($('#vEPitch'))$('#vEPitch').textContent=(+this.value)>0?('+'+this.value+'%'):(+this.value)<0?(this.value+'%'):'Normal'});
 $('#btnVoiceRec').addEventListener('click',function(){
  var b=this;
  if(voiceRecording){
@@ -1800,23 +1875,37 @@ $('#btnVoiceRec').addEventListener('click',function(){
   .catch(function(e){toast(e.message)});
  }
 });
+var lastVoices=[],voiceGenderFilter='all';
+function renderVoiceList(){
+ var arr=lastVoices.filter(function(v){return voiceGenderFilter==='all'||(v.gender||'').toLowerCase()===voiceGenderFilter});
+ if(!arr.length){$('#voiceList').innerHTML='';$('#voiceStatus').textContent='Is filter mein koi voice nahi mili';return}
+ $('#voiceList').innerHTML=arr.map(function(v){return '<button class="pill" data-vid="'+esc(v.voice_id)+'" data-vname="'+esc(v.name)+'">'+esc(v.name)+(v.gender?' · '+esc(v.gender):'')+(v.category?' ('+esc(v.category)+')':'')+'</button>'}).join('');
+ $('#voiceStatus').textContent=arr.length+' voices mili - jo pasand ho use tap karo, phir "Test awaaz suno" se sun lo';
+}
 $('#btnVoiceList').addEventListener('click',function(){
- if(!S.elevenKey){toast('Pehle API key daalo');return}
+ if(!(S.elevenKey||'').trim()){toast('Pehle API key daalo');return}
  $('#voiceStatus').textContent='Voices load ho rahi hain...';
  listElevenVoices().then(function(raw){
   var arr;try{arr=JSON.parse(raw)}catch(e){arr=[]}
-  if(!arr.length){$('#voiceStatus').textContent='Koi voice nahi mili';return}
-  $('#voiceList').innerHTML=arr.map(function(v,i){return '<button class="pill" data-vid="'+esc(v.voice_id)+'" data-vname="'+esc(v.name)+'">'+esc(v.name)+(v.category?' ('+esc(v.category)+')':'')+'</button>'}).join('');
-  $('#voiceStatus').textContent=arr.length+' voices mili - jo pasand ho use tap karo';
+  lastVoices=arr||[];
+  if(!lastVoices.length){$('#voiceStatus').textContent='Koi voice nahi mili';return}
+  renderVoiceList();
  }).catch(function(e){$('#voiceStatus').textContent='Error: '+e.message});
+});
+$('#voiceGenderFilter').addEventListener('click',function(e){
+ var b=e.target.closest('button[data-g]');if(!b)return;
+ voiceGenderFilter=b.getAttribute('data-g');
+ $$('#voiceGenderFilter button').forEach(function(x){x.classList.toggle('on',x===b)});
+ renderVoiceList();
 });
 $('#voiceList').addEventListener('click',function(e){
  var b=e.target.closest('button[data-vid]');if(!b)return;
  S.elevenVoiceId=b.getAttribute('data-vid');S.elevenVoiceName=b.getAttribute('data-vname');saveS();
- $('#voiceStatus').textContent='Selected: '+S.elevenVoiceName+' - ab yehi awaaz bolegi';
+ $('#voiceStatus').textContent='Selected: '+S.elevenVoiceName+' - "Test awaaz suno" dabao ya seedha chat mein bolo';
 });
+$('#btnVoicePreview').addEventListener('click',previewElevenVoice);
 $('#btnVoiceClone').addEventListener('click',function(){
- if(!S.elevenKey){toast('Pehle API key daalo');return}
+ if(!(S.elevenKey||'').trim()){toast('Pehle API key daalo');return}
  $('#voiceStatus').textContent='Clone ho raha hai...';
  cloneMyVoice('Nadeem ki awaaz').then(function(voiceId){
   S.elevenVoiceId=voiceId;S.elevenVoiceName='Meri awaaz';saveS();
@@ -1826,7 +1915,14 @@ $('#btnVoiceClone').addEventListener('click',function(){
 });
 $('#sbody').addEventListener('input',function(e){
  var t=e.target,k=t.getAttribute&&t.getAttribute('data-s');
- if(k){S[k]=t.type==='checkbox'?t.checked:t.type==='range'?+t.value:t.value;saveS();$('#vNew').textContent=S.maxNew;$('#vSteps').textContent=S.maxSteps;$('#vTemp').textContent=(+S.temperature).toFixed(2);refreshHeader();return}
+ if(k){
+  // Password/text fields ko hamesha trim karo (textarea chhodo, usme jaan-bujhkar newline/space ho sakta hai) -
+  // warna keyboard autofill ke extra space se ElevenLabs jaisi API key baar-baar galat ho jaati hai.
+  S[k]=t.type==='checkbox'?t.checked:t.type==='range'?+t.value:(t.tagName==='TEXTAREA'?t.value:t.value.trim());
+  saveS();$('#vNew').textContent=S.maxNew;$('#vSteps').textContent=S.maxSteps;$('#vTemp').textContent=(+S.temperature).toFixed(2);
+  $('#vEStyle').textContent=(+S.elevenStyle).toFixed(2);$('#vEStab').textContent=(+S.elevenStability).toFixed(2);
+  refreshHeader();return
+ }
  var tk=t.getAttribute&&t.getAttribute('data-tool');
  if(tk){S.tools[tk]=t.checked;saveS();refreshHeader()}
 });

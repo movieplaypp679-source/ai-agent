@@ -262,11 +262,21 @@ public class MainActivity extends Activity {
 		}
 
 		@JavascriptInterface
-		public void elevenSpeak(final String id, final String apiKey, final String voiceId, final String text) {
+		public void edgeSpeak(final String id, final String voice, final String text, final String settingsJson) {
 			pool.execute(new Runnable() {
 				@Override
 				public void run() {
-					doElevenSpeak(id, apiKey, voiceId, text);
+					doEdgeSpeak(id, voice, text, settingsJson);
+				}
+			});
+		}
+
+		@JavascriptInterface
+		public void elevenSpeak(final String id, final String apiKey, final String voiceId, final String text, final String settingsJson) {
+			pool.execute(new Runnable() {
+				@Override
+				public void run() {
+					doElevenSpeak(id, apiKey, voiceId, text, settingsJson);
 				}
 			});
 		}
@@ -1601,43 +1611,99 @@ public class MainActivity extends Activity {
 		}
 	}
 
-	private void doElevenListVoices(String id, String apiKey) {
+	// Kabhi kabhi mobile keyboard/autofill API key ke aage-peeche ek space ya newline
+	// jod deta hai - us se har ElevenLabs call "401 invalid key" de kar fail hoti hai,
+	// aur upar se dikhta hai jaise "tool bar-bar fail ho raha hai". Isliye hamesha trim karo.
+	private static String cleanStr(String s) {
+		return s == null ? "" : s.trim();
+	}
+
+	// ElevenLabs ke raw HTTP code/response ko user-samajhne-laayak Hinglish message mein badalta hai.
+	private String elevenFriendlyError(int code, String resp) {
+		if (code == 401) return "API key galat hai ya expire ho gayi (401). Settings mein jaa kar key dobara check/paste karo - aage-peeche koi space na ho.";
+		if (code == 429) return "ElevenLabs ka free quota/credits is mahine khatam ho gaye (429). Naya key banao ya agle mahine try karo.";
+		if (code == 400) return "Request galat thi (400) - shayad voice select nahi hui ya text khaali hai: " + resp;
+		if (code == 404) return "Ye voice ab available nahi hai (404) - 'Existing voices dekho' se dobara select karo.";
+		if (code >= 500) return "ElevenLabs server abhi down/busy hai (" + code + "), thodi der me try karo.";
+		return "ElevenLabs error " + code + ": " + resp;
+	}
+
+	// Transient network glitches (timeout, DNS hiccup, 5xx) par thodi der ruk kar dobara try karta hai -
+	// mobile data/wifi switch jaise cheezon mein ye "bar-bar fail" hona rokta hai.
+	// Auth/quota/bad-request jaisi errors (4xx) par retry nahi karta, turant asli reason dikhata hai.
+	private void doElevenListVoices(final String id, String apiKeyRaw) {
+		final String apiKey = cleanStr(apiKeyRaw);
+		if (apiKey.length() == 0) {
+			voiceEvt(id, "err", "Pehle ElevenLabs API key daalo (elevenlabs.io > Profile > API Keys se lo).");
+			return;
+		}
 		HttpURLConnection conn = null;
-		try {
-			URL url = new URL("https://api.elevenlabs.io/v1/voices");
-			conn = (HttpURLConnection) url.openConnection();
-			conn.setRequestMethod("GET");
-			conn.setConnectTimeout(15000);
-			conn.setReadTimeout(20000);
-			conn.setRequestProperty("xi-api-key", apiKey);
-			int code = conn.getResponseCode();
-			String resp = readAll(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
-			if (code < 200 || code >= 300) {
-				voiceEvt(id, "err", "ElevenLabs error " + code + ": " + resp);
-				return;
-			}
-			JSONObject jo = new JSONObject(resp);
-			JSONArray arr = jo.optJSONArray("voices");
-			JSONArray out = new JSONArray();
-			if (arr != null) {
-				for (int i = 0; i < arr.length(); i++) {
-					JSONObject v = arr.getJSONObject(i);
-					JSONObject o = new JSONObject();
-					o.put("voice_id", v.optString("voice_id", ""));
-					o.put("name", v.optString("name", "?"));
-					o.put("category", v.optString("category", ""));
-					out.put(o);
+		int attempts = 0;
+		while (true) {
+			attempts++;
+			try {
+				URL url = new URL("https://api.elevenlabs.io/v1/voices");
+				conn = (HttpURLConnection) url.openConnection();
+				conn.setRequestMethod("GET");
+				conn.setConnectTimeout(15000);
+				conn.setReadTimeout(20000);
+				conn.setRequestProperty("xi-api-key", apiKey);
+				int code = conn.getResponseCode();
+				String resp = readAll(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
+				if (code < 200 || code >= 300) {
+					if (code >= 500 && attempts < 3) {
+						sleepQuiet(attempts * 700);
+						continue;
+					}
+					voiceEvt(id, "err", elevenFriendlyError(code, resp));
+					return;
 				}
+				JSONObject jo = new JSONObject(resp);
+				JSONArray arr = jo.optJSONArray("voices");
+				JSONArray out = new JSONArray();
+				if (arr != null) {
+					for (int i = 0; i < arr.length(); i++) {
+						JSONObject v = arr.getJSONObject(i);
+						JSONObject o = new JSONObject();
+						o.put("voice_id", v.optString("voice_id", ""));
+						o.put("name", v.optString("name", "?"));
+						o.put("category", v.optString("category", ""));
+						JSONObject labels = v.optJSONObject("labels");
+						o.put("gender", labels != null ? labels.optString("gender", "") : "");
+						o.put("accent", labels != null ? labels.optString("accent", "") : "");
+						o.put("description", v.optString("description", ""));
+						o.put("preview_url", v.optString("preview_url", ""));
+						out.put(o);
+					}
+				}
+				voiceEvt(id, "ok", out.toString());
+				return;
+			} catch (Exception e) {
+				if (attempts < 3) {
+					sleepQuiet(attempts * 700);
+					continue;
+				}
+				voiceEvt(id, "err", "List fail (network): " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+				return;
+			} finally {
+				if (conn != null) conn.disconnect();
 			}
-			voiceEvt(id, "ok", out.toString());
-		} catch (Exception e) {
-			voiceEvt(id, "err", "List fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
-		} finally {
-			if (conn != null) conn.disconnect();
 		}
 	}
 
-	private void doElevenClone(String id, String apiKey, String name) {
+	private void sleepQuiet(long ms) {
+		try {
+			Thread.sleep(ms);
+		} catch (InterruptedException ignored) {
+		}
+	}
+
+	private void doElevenClone(String id, String apiKeyRaw, String name) {
+		String apiKey = cleanStr(apiKeyRaw);
+		if (apiKey.length() == 0) {
+			voiceEvt(id, "err", "Pehle ElevenLabs API key daalo.");
+			return;
+		}
 		HttpURLConnection conn = null;
 		try {
 			File audio = new File(voiceRecordPath == null ? "" : voiceRecordPath);
@@ -1655,7 +1721,7 @@ public class MainActivity extends Activity {
 			conn.setRequestProperty("xi-api-key", apiKey);
 			conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 			OutputStream os = conn.getOutputStream();
-			os.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\n" + (name == null || name.length() == 0 ? "My Voice" : name) + "\r\n").getBytes("UTF-8"));
+			os.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\n" + (name == null || name.trim().length() == 0 ? "My Voice" : name.trim()) + "\r\n").getBytes("UTF-8"));
 			os.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"sample.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n").getBytes("UTF-8"));
 			InputStream fis = new java.io.FileInputStream(audio);
 			byte[] buf = new byte[8192];
@@ -1677,77 +1743,170 @@ public class MainActivity extends Activity {
 					voiceEvt(id, "ok", voiceId);
 				}
 			} else {
-				voiceEvt(id, "err", "ElevenLabs error " + code + ": " + resp);
+				voiceEvt(id, "err", elevenFriendlyError(code, resp));
 			}
 		} catch (Exception e) {
-			voiceEvt(id, "err", "Clone fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+			voiceEvt(id, "err", "Clone fail (network): " + (e.getMessage() == null ? e.toString() : e.getMessage()));
 		} finally {
 			if (conn != null) conn.disconnect();
 		}
 	}
 
-	private void doElevenSpeak(String id, String apiKey, String voiceId, String text) {
-		HttpURLConnection conn = null;
+	// settingsJson (optional, can be null/empty): {"model_id":"...","stability":0.45,
+	// "similarity_boost":0.8,"style":0.3,"use_speaker_boost":true} - JS Voice settings se bhejta hai
+	// taaki awaaz garmjoshi/expressiveness user khud tune kar sake, bina app dobara banaye.
+	private void doEdgeSpeak(final String id, String voiceRaw, final String text, String settingsJson) {
+		final String voice = (voiceRaw == null || voiceRaw.trim().isEmpty()) ? "hi-IN-SwaraNeural" : voiceRaw.trim();
+		if (text == null || text.trim().isEmpty()) return;
+		int pitch = 0;
+		int rate = 0;
 		try {
-			URL url = new URL("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId);
-			conn = (HttpURLConnection) url.openConnection();
-			conn.setRequestMethod("POST");
-			conn.setDoOutput(true);
-			conn.setConnectTimeout(15000);
-			conn.setReadTimeout(60000);
-			conn.setRequestProperty("xi-api-key", apiKey);
-			conn.setRequestProperty("Content-Type", "application/json");
-			conn.setRequestProperty("Accept", "audio/mpeg");
-			JSONObject body = new JSONObject();
-			body.put("text", text);
-			body.put("model_id", "eleven_multilingual_v2");
-			OutputStream os = conn.getOutputStream();
-			os.write(body.toString().getBytes("UTF-8"));
-			os.close();
-			int code = conn.getResponseCode();
-			if (code < 200 || code >= 300) {
-				String err = readAll(conn.getErrorStream());
-				voiceEvt(id, "err", "ElevenLabs TTS error " + code + ": " + err);
-				return;
+			if (settingsJson != null && !settingsJson.trim().isEmpty()) {
+				JSONObject s = new JSONObject(settingsJson);
+				pitch = s.optInt("pitch", 0);
+				rate = s.optInt("rate", 0);
 			}
-			final File out = new File(getCacheDir(), "eleven_tts_" + id + ".mp3");
-			FileOutputStream fos = new FileOutputStream(out);
-			InputStream is = conn.getInputStream();
-			byte[] buf = new byte[8192];
-			int n;
-			while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
-			fos.close();
-			is.close();
-			mainHandler.post(new Runnable() {
-				@Override
-				public void run() {
-					try {
-						if (elevenPlayer != null) {
-							try {
-								elevenPlayer.release();
-							} catch (Exception ignored) {
+		} catch (Exception ignored) {
+		}
+
+		EdgeTTS.synthesize(getCacheDir(), voice, text, pitch, rate, new EdgeTTS.Callback() {
+			@Override
+			public void onSuccess(final File mp3File) {
+				runOnUiThread(new Runnable() {
+					@Override
+					public void run() {
+						try {
+							if (elevenPlayer != null) {
+								try {
+									elevenPlayer.release();
+								} catch (Exception ignored) {
+								}
 							}
+							elevenPlayer = new MediaPlayer();
+							elevenPlayer.setDataSource(mp3File.getAbsolutePath());
+							elevenPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+								@Override
+								public void onCompletion(MediaPlayer mp) {
+									js("window.__tts&&window.__tts('end')");
+								}
+							});
+							elevenPlayer.prepare();
+							elevenPlayer.start();
+							js("window.__tts&&window.__tts('start')");
+							voiceEvt(id, "done", "");
+						} catch (Exception e) {
+							voiceEvt(id, "err", "Playback failed: " + e.getMessage());
 						}
-						elevenPlayer = new MediaPlayer();
-						elevenPlayer.setDataSource(out.getAbsolutePath());
-						elevenPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-							@Override
-							public void onCompletion(MediaPlayer mp) {
-								js("window.__tts&&window.__tts('end')");
-							}
-						});
-						elevenPlayer.prepare();
-						elevenPlayer.start();
-						js("window.__tts&&window.__tts('start')");
-					} catch (Exception e) {
-						voiceEvt(id, "err", "Playback fail: " + e.getMessage());
 					}
+				});
+			}
+
+			@Override
+			public void onError(final String error) {
+				voiceEvt(id, "err", error);
+			}
+		});
+	}
+
+	private void doElevenSpeak(final String id, String apiKeyRaw, String voiceIdRaw, final String text, String settingsJson) {
+		final String apiKey = cleanStr(apiKeyRaw);
+		final String voiceId = cleanStr(voiceIdRaw);
+		if (apiKey.length() == 0) {
+			voiceEvt(id, "err", "Pehle ElevenLabs API key daalo.");
+			return;
+		}
+		if (voiceId.length() == 0) {
+			voiceEvt(id, "err", "Pehle koi voice select karo (clone karo ya 'Existing voices dekho' se chuno).");
+			return;
+		}
+		if (text == null || text.trim().length() == 0) return;
+		JSONObject settings = null;
+		try {
+			if (settingsJson != null && settingsJson.trim().length() > 0) settings = new JSONObject(settingsJson);
+		} catch (Exception ignored) {
+		}
+		String modelId = settings != null ? settings.optString("model_id", "eleven_multilingual_v2") : "eleven_multilingual_v2";
+		HttpURLConnection conn = null;
+		int attempts = 0;
+		while (true) {
+			attempts++;
+			try {
+				URL url = new URL("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId);
+				conn = (HttpURLConnection) url.openConnection();
+				conn.setRequestMethod("POST");
+				conn.setDoOutput(true);
+				conn.setConnectTimeout(15000);
+				conn.setReadTimeout(60000);
+				conn.setRequestProperty("xi-api-key", apiKey);
+				conn.setRequestProperty("Content-Type", "application/json");
+				conn.setRequestProperty("Accept", "audio/mpeg");
+				JSONObject body = new JSONObject();
+				body.put("text", text);
+				body.put("model_id", modelId);
+				JSONObject vs = new JSONObject();
+				vs.put("stability", settings != null ? settings.optDouble("stability", 0.45) : 0.45);
+				vs.put("similarity_boost", settings != null ? settings.optDouble("similarity_boost", 0.8) : 0.8);
+				vs.put("style", settings != null ? settings.optDouble("style", 0.3) : 0.3);
+				vs.put("use_speaker_boost", settings == null || settings.optBoolean("use_speaker_boost", true));
+				body.put("voice_settings", vs);
+				OutputStream os = conn.getOutputStream();
+				os.write(body.toString().getBytes("UTF-8"));
+				os.close();
+				int code = conn.getResponseCode();
+				if (code < 200 || code >= 300) {
+					String err = readAll(conn.getErrorStream());
+					if (code >= 500 && attempts < 3) {
+						sleepQuiet(attempts * 700);
+						continue;
+					}
+					voiceEvt(id, "err", elevenFriendlyError(code, err));
+					return;
 				}
-			});
-		} catch (Exception e) {
-			voiceEvt(id, "err", "TTS fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
-		} finally {
-			if (conn != null) conn.disconnect();
+				final File out = new File(getCacheDir(), "eleven_tts_" + id + ".mp3");
+				FileOutputStream fos = new FileOutputStream(out);
+				InputStream is = conn.getInputStream();
+				byte[] buf = new byte[8192];
+				int n;
+				while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+				fos.close();
+				is.close();
+				mainHandler.post(new Runnable() {
+					@Override
+					public void run() {
+						try {
+							if (elevenPlayer != null) {
+								try {
+									elevenPlayer.release();
+								} catch (Exception ignored) {
+								}
+							}
+							elevenPlayer = new MediaPlayer();
+							elevenPlayer.setDataSource(out.getAbsolutePath());
+							elevenPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+								@Override
+								public void onCompletion(MediaPlayer mp) {
+									js("window.__tts&&window.__tts('end')");
+								}
+							});
+							elevenPlayer.prepare();
+							elevenPlayer.start();
+							js("window.__tts&&window.__tts('start')");
+						} catch (Exception e) {
+							voiceEvt(id, "err", "Playback fail: " + e.getMessage());
+						}
+					}
+				});
+				return;
+			} catch (Exception e) {
+				if (attempts < 3) {
+					sleepQuiet(attempts * 700);
+					continue;
+				}
+				voiceEvt(id, "err", "TTS fail (network): " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+				return;
+			} finally {
+				if (conn != null) conn.disconnect();
+			}
 		}
 	}
 
