@@ -317,10 +317,12 @@ input[type=range]{width:100%;accent-color:#8b5cf6;height:28px}
       <div class="row" id="elevenRow" style="display:none">
         <small style="color:var(--mut);font-size:12px">ElevenLabs API key chahiye (elevenlabs.io par free account bana ke Profile se key lo). Phir neeche "Record" se 30-60 second clearly bolo (jaise "Hello, mera naam ... hai, main..."), phir "Clone karo" dabao.</small>
         <input class="inp" id="elevenKey" data-s="elevenKey" type="password" autocomplete="off" placeholder="ElevenLabs API key"></input>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
           <button class="btn sm" id="btnVoiceRec"><i data-i="mic"></i>Record</button>
-          <button class="btn ghost sm" id="btnVoiceClone" disabled>Clone karo</button>
+          <button class="btn ghost sm" id="btnVoiceClone" disabled>Clone karo (meri awaaz)</button>
+          <button class="btn ghost sm" id="btnVoiceList">Existing voices dekho</button>
         </div>
+        <div class="presets" id="voiceList"></div>
         <div class="cst" id="voiceStatus"></div>
       </div>
     </div></div>
@@ -478,6 +480,7 @@ function voiceCall(method,args){
 function recordMyVoiceStart(){return voiceCall('voiceRecordStart',[])}
 function recordMyVoiceStop(){return voiceCall('voiceRecordStop',[])}
 function cloneMyVoice(name){return voiceCall('elevenCloneVoice',[S.elevenKey,name||'My Voice'])}
+function listElevenVoices(){return voiceCall('elevenListVoices',[S.elevenKey])}
 function speakNow(text){
  if(!text)return;
  if(S.voiceProvider==='eleven'&&S.elevenKey&&S.elevenVoiceId&&A&&A.elevenSpeak){
@@ -1796,6 +1799,21 @@ $('#btnVoiceRec').addEventListener('click',function(){
   recordMyVoiceStart().then(function(){voiceRecording=true;b.innerHTML='Stop (bol rahe raho...)';$('#voiceStatus').textContent='Recording chal rahi hai - 30-60 second clearly bolo, phir Stop dabao'})
   .catch(function(e){toast(e.message)});
  }
+});
+$('#btnVoiceList').addEventListener('click',function(){
+ if(!S.elevenKey){toast('Pehle API key daalo');return}
+ $('#voiceStatus').textContent='Voices load ho rahi hain...';
+ listElevenVoices().then(function(raw){
+  var arr;try{arr=JSON.parse(raw)}catch(e){arr=[]}
+  if(!arr.length){$('#voiceStatus').textContent='Koi voice nahi mili';return}
+  $('#voiceList').innerHTML=arr.map(function(v,i){return '<button class="pill" data-vid="'+esc(v.voice_id)+'" data-vname="'+esc(v.name)+'">'+esc(v.name)+(v.category?' ('+esc(v.category)+')':'')+'</button>'}).join('');
+  $('#voiceStatus').textContent=arr.length+' voices mili - jo pasand ho use tap karo';
+ }).catch(function(e){$('#voiceStatus').textContent='Error: '+e.message});
+});
+$('#voiceList').addEventListener('click',function(e){
+ var b=e.target.closest('button[data-vid]');if(!b)return;
+ S.elevenVoiceId=b.getAttribute('data-vid');S.elevenVoiceName=b.getAttribute('data-vname');saveS();
+ $('#voiceStatus').textContent='Selected: '+S.elevenVoiceName+' - ab yehi awaaz bolegi';
 });
 $('#btnVoiceClone').addEventListener('click',function(){
  if(!S.elevenKey){toast('Pehle API key daalo');return}

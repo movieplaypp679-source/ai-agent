@@ -10,7 +10,7 @@ android {
         applicationId "com.aiagent"
         minSdk 26
         targetSdk 34
-        versionCode 9
+        versionCode 10
         versionName "2.6"
         ndk {
             // MediaPipe LLM runs on 64-bit ARM phones
@@ -18,7 +18,19 @@ android {
         }
     }
 
+    signingConfigs {
+        debug {
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

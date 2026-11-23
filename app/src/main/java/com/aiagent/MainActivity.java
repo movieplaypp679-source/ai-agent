@@ -242,6 +242,16 @@ public class MainActivity extends Activity {
 		}
 
 		@JavascriptInterface
+		public void elevenListVoices(final String id, final String apiKey) {
+			pool.execute(new Runnable() {
+				@Override
+				public void run() {
+					doElevenListVoices(id, apiKey);
+				}
+			});
+		}
+
+		@JavascriptInterface
 		public void elevenCloneVoice(final String id, final String apiKey, final String name) {
 			pool.execute(new Runnable() {
 				@Override
@@ -1588,6 +1598,42 @@ public class MainActivity extends Activity {
 			voiceEvt(id, "ok", voiceRecordPath);
 		} catch (Exception e) {
 			voiceEvt(id, "err", "Recording stop fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+		}
+	}
+
+	private void doElevenListVoices(String id, String apiKey) {
+		HttpURLConnection conn = null;
+		try {
+			URL url = new URL("https://api.elevenlabs.io/v1/voices");
+			conn = (HttpURLConnection) url.openConnection();
+			conn.setRequestMethod("GET");
+			conn.setConnectTimeout(15000);
+			conn.setReadTimeout(20000);
+			conn.setRequestProperty("xi-api-key", apiKey);
+			int code = conn.getResponseCode();
+			String resp = readAll(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
+			if (code < 200 || code >= 300) {
+				voiceEvt(id, "err", "ElevenLabs error " + code + ": " + resp);
+				return;
+			}
+			JSONObject jo = new JSONObject(resp);
+			JSONArray arr = jo.optJSONArray("voices");
+			JSONArray out = new JSONArray();
+			if (arr != null) {
+				for (int i = 0; i < arr.length(); i++) {
+					JSONObject v = arr.getJSONObject(i);
+					JSONObject o = new JSONObject();
+					o.put("voice_id", v.optString("voice_id", ""));
+					o.put("name", v.optString("name", "?"));
+					o.put("category", v.optString("category", ""));
+					out.put(o);
+				}
+			}
+			voiceEvt(id, "ok", out.toString());
+		} catch (Exception e) {
+			voiceEvt(id, "err", "List fail: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+		} finally {
+			if (conn != null) conn.disconnect();
 		}
 	}
 
