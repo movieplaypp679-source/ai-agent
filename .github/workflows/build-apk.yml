@@ -33,15 +33,21 @@ jobs:
           ./gradlew assembleDebug --stacktrace
           cp app/build/outputs/apk/debug/app-debug.apk ./AI-Agent-v2.6-debug.apk
 
-      - name: Upload APK Artifact
+      - name: Create Clean Project ZIP
+        run: |
+          zip -r ./AI_Agent_Phase9_v2.6_updated.zip app settings.gradle build.gradle -x "app/build/*" "*.git*"
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AI-Agent-v2.6-debug.apk
-          path: ./AI-Agent-v2.6-debug.apk
+          name: AI-Agent-v2.6-release-files
+          path: |
+            ./AI-Agent-v2.6-debug.apk
+            ./AI_Agent_Phase9_v2.6_updated.zip
           retention-days: 14
 
-      - name: Publish APK to GitHub Release
+      - name: Publish to GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v2.6 ./AI-Agent-v2.6-debug.apk --clobber
+          gh release upload v2.6 ./AI-Agent-v2.6-debug.apk ./AI_Agent_Phase9_v2.6_updated.zip --clobber
