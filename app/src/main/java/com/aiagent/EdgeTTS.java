@@ -72,6 +72,7 @@ public class EdgeTTS {
                             .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0")
                             .addHeader("Accept-Encoding", "gzip, deflate, br, zstd")
                             .addHeader("Accept-Language", "en-US,en;q=0.9")
+                            .addHeader("Cookie", "muid=" + EdgeDrm.generateMuid() + ";")
                             .build();
 
                     final ByteArrayOutputStream audioBuffer = new ByteArrayOutputStream();

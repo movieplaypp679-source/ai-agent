@@ -311,4 +311,14 @@ public final class EdgeDrm {
         }
         return csHex.toString() + "-" + shaHex.toString();
     }
+    public static String generateMuid() {
+        SecureRandom sr = new SecureRandom();
+        byte[] b = new byte[16];
+        sr.nextBytes(b);
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) {
+            sb.append(String.format("%02X", x & 0xFF));
+        }
+        return sb.toString();
+    }
 }

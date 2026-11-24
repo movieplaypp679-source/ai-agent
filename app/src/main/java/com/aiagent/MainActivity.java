@@ -287,6 +287,9 @@ public class MainActivity extends Activity {
 				@Override
 				public void run() {
 					try {
+						if (tts != null) {
+							try { tts.stop(); } catch (Exception ignored) {}
+						}
 						if (elevenPlayer != null) {
 							elevenPlayer.stop();
 							elevenPlayer.release();
@@ -436,7 +439,16 @@ public class MainActivity extends Activity {
 			runOnUiThread(new Runnable() {
 				@Override
 				public void run() {
-					if (tts != null) tts.stop();
+					if (tts != null) {
+						try { tts.stop(); } catch (Exception ignored) {}
+					}
+					if (elevenPlayer != null) {
+						try {
+							elevenPlayer.stop();
+							elevenPlayer.release();
+							elevenPlayer = null;
+						} catch (Exception ignored) {}
+					}
 					js("window.__tts&&window.__tts('end')");
 				}
 			});
@@ -1790,10 +1802,15 @@ public class MainActivity extends Activity {
 									js("window.__tts&&window.__tts('end')");
 								}
 							});
+							if (tts != null) {
+								try {
+									tts.stop();
+								} catch (Exception ignored) {}
+							}
 							elevenPlayer.prepare();
 							elevenPlayer.start();
 							js("window.__tts&&window.__tts('start')");
-							voiceEvt(id, "done", "");
+							voiceEvt(id, "ok", "");
 						} catch (Exception e) {
 							voiceEvt(id, "err", "Playback failed: " + e.getMessage());
 						}
@@ -1888,9 +1905,15 @@ public class MainActivity extends Activity {
 									js("window.__tts&&window.__tts('end')");
 								}
 							});
+							if (tts != null) {
+								try {
+									tts.stop();
+								} catch (Exception ignored) {}
+							}
 							elevenPlayer.prepare();
 							elevenPlayer.start();
 							js("window.__tts&&window.__tts('start')");
+							voiceEvt(id, "ok", "");
 						} catch (Exception e) {
 							voiceEvt(id, "err", "Playback fail: " + e.getMessage());
 						}
@@ -2172,6 +2195,13 @@ public class MainActivity extends Activity {
 
 	// ---------- Text to speech ----------
 	private void speakNow(String text, String lang) {
+		if (elevenPlayer != null) {
+			try {
+				elevenPlayer.stop();
+				elevenPlayer.release();
+				elevenPlayer = null;
+			} catch (Exception ignored) {}
+		}
 		pendingSpeech = text;
 		pendingSpeechLang = lang;
 		if (tts == null) {
