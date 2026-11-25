@@ -75,6 +75,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.io.FileInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+
 
 public class MainActivity extends Activity {
 
@@ -119,6 +124,10 @@ public class MainActivity extends Activity {
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		try {
+			android.os.StrictMode.setVmPolicy(new android.os.StrictMode.VmPolicy.Builder().build());
+		} catch (Throwable ignored) {}
+
 		getWindow().setStatusBarColor(0xFF05060F);
 		getWindow().setNavigationBarColor(0xFF05060F);
 		setContentView(R.layout.main);
@@ -146,11 +155,21 @@ public class MainActivity extends Activity {
 				if (fileCb != null) { try { fileCb.onReceiveValue(null); } catch (Throwable ignored) {} }
 				fileCb = cb;
 				try {
-					Intent it = new Intent(Intent.ACTION_GET_CONTENT);
-					it.addCategory(Intent.CATEGORY_OPENABLE);
-					it.setType("*/*");
+					Intent it = null;
+					if (params != null) {
+						try {
+							it = params.createIntent();
+						} catch (Throwable ignored) {}
+					}
+					if (it == null) {
+						it = new Intent(Intent.ACTION_GET_CONTENT);
+						it.addCategory(Intent.CATEGORY_OPENABLE);
+						it.setType("*/*");
+					}
 					it.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-					startActivityForResult(Intent.createChooser(it, "File / Image / Video chuno"), REQ_FILE);
+					Intent chooser = Intent.createChooser(it, "Files / Media chuno");
+					chooser.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+					startActivityForResult(chooser, REQ_FILE);
 				} catch (Throwable t) {
 					fileCb = null;
 					cb.onReceiveValue(null);
@@ -192,6 +211,64 @@ public class MainActivity extends Activity {
 	}
 
 	// ---------- JS <-> Java bridge ----------
+	
+	private File getFileForPath(String path) {
+		if (path == null) return null;
+		path = path.trim();
+		if (path.startsWith("/") || path.startsWith("sdcard/") || path.startsWith("storage/")) {
+			return path.startsWith("/") ? new File(path) : new File("/" + path);
+		}
+		String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", null);
+		if (custom != null && !custom.trim().isEmpty()) {
+			return new File(new File(custom.trim()), path);
+		}
+		File dl = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+		return new File(new File(dl, "AIAgent_Workspace"), path);
+	}
+
+	private String readStreamToText(InputStream in, int maxBytes) throws Exception {
+		int cap = maxBytes <= 0 ? 60000 : Math.min(maxBytes, 400000);
+		ByteArrayOutputStream bo = new ByteArrayOutputStream();
+		byte[] buf = new byte[8192];
+		int n;
+		int zeros = 0;
+		boolean trunc = false;
+		while ((n = in.read(buf)) != -1) {
+			for (int k = 0; k < n; k++) {
+				if (buf[k] == 0) zeros++;
+			}
+			int room = cap - bo.size();
+			if (n > room) {
+				bo.write(buf, 0, room);
+				trunc = true;
+				break;
+			}
+			bo.write(buf, 0, n);
+		}
+		if (zeros > 8) return "ERR:Ye binary file hai (image/zip/apk jaisi), text ki tarah nahi padh sakte";
+		String txt = bo.toString("UTF-8");
+		return trunc ? txt + "\n...[file aage bhi hai, 400KB tak hi padhi]" : txt;
+	}
+
+	private void zipDir(File root, File cur, ZipOutputStream zos) throws java.io.IOException {
+		File[] list = cur.listFiles();
+		if (list == null) return;
+		byte[] buf = new byte[8192];
+		for (File f : list) {
+			if (f.isDirectory()) {
+				zipDir(root, f, zos);
+			} else {
+				String rel = root.toURI().relativize(f.toURI()).getPath();
+				zos.putNextEntry(new ZipEntry(rel));
+				FileInputStream fis = new FileInputStream(f);
+				int n;
+				while ((n = fis.read(buf)) != -1) zos.write(buf, 0, n);
+				fis.close();
+				zos.closeEntry();
+			}
+		}
+	}
+
 	private class Bridge {
 
 		@JavascriptInterface
@@ -633,7 +710,39 @@ public class MainActivity extends Activity {
 
 		@JavascriptInterface
 		public String fsRoot() {
+			String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", "");
+			if (!custom.isEmpty()) return custom;
 			return getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsName", "");
+		}
+
+		@JavascriptInterface
+		public String fsSetFolderPath(String folderPath) {
+			try {
+				if (folderPath == null || folderPath.trim().isEmpty()) {
+					getSharedPreferences("aiagent", MODE_PRIVATE).edit().remove("fsFolderPath").apply();
+					return "OK:CLEARED";
+				}
+				String p = folderPath.trim();
+				File f = p.startsWith("/") ? new File(p) : new File(Environment.getExternalStorageDirectory(), p);
+				if (!f.exists()) f.mkdirs();
+				String full = f.getAbsolutePath();
+				String nm = f.getName();
+				getSharedPreferences("aiagent", MODE_PRIVATE).edit().putString("fsFolderPath", full).putString("fsName", nm).apply();
+				js("window.__fsRoot&&window.__fsRoot(" + JSONObject.quote(full) + ")");
+				return "OK:" + full;
+			} catch (Exception e) {
+				return "ERR:" + e.getMessage();
+			}
+		}
+
+		@JavascriptInterface
+		public String fsGetFolderPath() {
+			String p = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", "");
+			if (!p.isEmpty()) return p;
+			Uri tree = fsTree();
+			if (tree != null) return getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsName", "Workspace");
+			File dl = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+			return new File(dl, "AIAgent_Workspace").getAbsolutePath();
 		}
 
 		@JavascriptInterface
@@ -645,26 +754,48 @@ public class MainActivity extends Activity {
 				}
 			} catch (Exception ignored) {
 			}
-			getSharedPreferences("aiagent", MODE_PRIVATE).edit().remove("fsRoot").remove("fsName").apply();
+			getSharedPreferences("aiagent", MODE_PRIVATE).edit().remove("fsRoot").remove("fsName").remove("fsFolderPath").apply();
 		}
 
 		@JavascriptInterface
 		public String fsList(String path) {
 			try {
+				String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", null);
 				Uri tree = fsTree();
-				if (tree == null) return "ERR:NO_ROOT";
-				String[] parts = splitPath(path);
-				Uri dir = fsFind(tree, parts, parts.length);
-				if (dir == null) return "ERR:Folder nahi mila: " + path;
-				JSONArray arr = new JSONArray();
-				for (Ent e : fsChildren(tree, dir)) {
-					JSONObject o = new JSONObject();
-					o.put("name", e.name);
-					o.put("dir", e.dir);
-					o.put("size", e.size);
-					arr.put(o);
+				boolean useFile = (path != null && (path.startsWith("/") || path.startsWith("sdcard/") || path.startsWith("storage/"))) || (custom != null && !custom.trim().isEmpty()) || tree == null;
+				if (useFile) {
+					File dir = getFileForPath(path == null ? "" : path);
+					if (dir != null && dir.exists() && dir.isDirectory()) {
+						JSONArray arr = new JSONArray();
+						File[] fl = dir.listFiles();
+						if (fl != null) {
+							for (File f : fl) {
+								JSONObject o = new JSONObject();
+								o.put("name", f.getName());
+								o.put("dir", f.isDirectory());
+								o.put("size", f.length());
+								arr.put(o);
+							}
+						}
+						return arr.toString();
+					}
 				}
-				return arr.toString();
+				if (tree != null) {
+					String[] parts = splitPath(path);
+					Uri dir = fsFind(tree, parts, parts.length);
+					if (dir != null) {
+						JSONArray arr = new JSONArray();
+						for (Ent e : fsChildren(tree, dir)) {
+							JSONObject o = new JSONObject();
+							o.put("name", e.name);
+							o.put("dir", e.dir);
+							o.put("size", e.size);
+							arr.put(o);
+						}
+						return arr.toString();
+					}
+				}
+				return "[]";
 			} catch (Exception e) {
 				return "ERR:" + e.getMessage();
 			}
@@ -672,54 +803,62 @@ public class MainActivity extends Activity {
 
 		@JavascriptInterface
 		public String fsRead(String path, int maxBytes) {
-			InputStream in = null;
-			try {
-				Uri tree = fsTree();
-				if (tree == null) return "ERR:NO_ROOT";
-				String[] parts = splitPath(path);
-				if (parts.length == 0) return "ERR:File ka path do";
-				Uri doc = fsFind(tree, parts, parts.length);
-				if (doc == null) return "ERR:File nahi mili: " + path;
-				in = getContentResolver().openInputStream(doc);
-				if (in == null) return "ERR:File khul nahi payi";
-				int cap = maxBytes <= 0 ? 60000 : Math.min(maxBytes, 400000);
-				java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-				byte[] buf = new byte[8192];
-				int n;
-				int zeros = 0;
-				boolean trunc = false;
-				while ((n = in.read(buf)) != -1) {
-					for (int k = 0; k < n; k++) {
-						if (buf[k] == 0) zeros++;
-					}
-					int room = cap - bo.size();
-					if (n > room) {
-						bo.write(buf, 0, room);
-						trunc = true;
-						break;
-					}
-					bo.write(buf, 0, n);
-				}
-				if (zeros > 8) return "ERR:Ye binary file hai (image/zip/apk jaisi), text ki tarah nahi padh sakte";
-				String txt = bo.toString("UTF-8");
-				return trunc ? txt + "\n...[file aage bhi hai, 400KB tak hi padhi]" : txt;
-			} catch (Exception e) {
-				return "ERR:" + e.getMessage();
-			} finally {
-				if (in != null) {
+			if (path == null || path.trim().isEmpty()) return "ERR:File ka path do";
+			String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", null);
+			Uri tree = fsTree();
+			boolean useFile = path.startsWith("/") || path.startsWith("sdcard/") || path.startsWith("storage/") || (custom != null && !custom.trim().isEmpty()) || tree == null;
+			if (useFile) {
+				File f = getFileForPath(path);
+				if (f != null && f.exists() && f.isFile()) {
+					InputStream in = null;
 					try {
-						in.close();
-					} catch (Exception ignored) {
+						in = new FileInputStream(f);
+						return readStreamToText(in, maxBytes);
+					} catch (Exception e) {
+						return "ERR:" + e.getMessage();
+					} finally {
+						if (in != null) try { in.close(); } catch (Exception ignored) {}
 					}
 				}
 			}
+			if (tree != null) {
+				InputStream in = null;
+				try {
+					String[] parts = splitPath(path);
+					if (parts.length == 0) return "ERR:File ka path do";
+					Uri doc = fsFind(tree, parts, parts.length);
+					if (doc != null) {
+						in = getContentResolver().openInputStream(doc);
+						if (in != null) return readStreamToText(in, maxBytes);
+					}
+				} catch (Exception e) {
+					return "ERR:" + e.getMessage();
+				} finally {
+					if (in != null) try { in.close(); } catch (Exception ignored) {}
+				}
+			}
+			return "ERR:File nahi mili: " + path;
 		}
 
 		@JavascriptInterface
 		public String fsWrite(String path, String content, boolean append) {
 			try {
+				if (path == null || path.trim().isEmpty()) return "ERR:File ka path do";
+				byte[] b = (content == null ? "" : content).getBytes("UTF-8");
+				String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", null);
 				Uri tree = fsTree();
-				if (tree == null) return "ERR:NO_ROOT";
+				boolean useFile = path.startsWith("/") || path.startsWith("sdcard/") || path.startsWith("storage/") || (custom != null && !custom.trim().isEmpty()) || tree == null;
+				if (useFile) {
+					File f = getFileForPath(path);
+					if (f == null) return "ERR:Invalid file path";
+					File parent = f.getParentFile();
+					if (parent != null && !parent.exists()) parent.mkdirs();
+					FileOutputStream os = new FileOutputStream(f, append);
+					os.write(b);
+					os.flush();
+					os.close();
+					return "OK:" + b.length;
+				}
 				String[] parts = splitPath(path);
 				if (parts.length == 0) return "ERR:File ka path do";
 				Uri parent = fsEnsureDir(tree, parts, parts.length - 1);
@@ -737,7 +876,6 @@ public class MainActivity extends Activity {
 					if (made == null) return "ERR:File ban nahi payi";
 					doc = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getDocumentId(made));
 				}
-				byte[] b = (content == null ? "" : content).getBytes("UTF-8");
 				OutputStream os;
 				try {
 					os = getContentResolver().openOutputStream(doc, append ? "wa" : "wt");
@@ -757,10 +895,16 @@ public class MainActivity extends Activity {
 		@JavascriptInterface
 		public String fsMkdir(String path) {
 			try {
+				if (path == null || path.trim().isEmpty()) return "ERR:Folder ka naam do";
+				String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", null);
 				Uri tree = fsTree();
-				if (tree == null) return "ERR:NO_ROOT";
+				boolean useFile = path.startsWith("/") || path.startsWith("sdcard/") || path.startsWith("storage/") || (custom != null && !custom.trim().isEmpty()) || tree == null;
+				if (useFile) {
+					File dir = getFileForPath(path);
+					if (dir != null && !dir.exists()) dir.mkdirs();
+					return "OK";
+				}
 				String[] parts = splitPath(path);
-				if (parts.length == 0) return "ERR:Folder ka naam do";
 				fsEnsureDir(tree, parts, parts.length);
 				return "OK";
 			} catch (Exception e) {
@@ -771,8 +915,17 @@ public class MainActivity extends Activity {
 		@JavascriptInterface
 		public String fsDelete(String path) {
 			try {
+				if (path == null || path.trim().isEmpty()) return "ERR:Path do";
+				String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", null);
 				Uri tree = fsTree();
-				if (tree == null) return "ERR:NO_ROOT";
+				boolean useFile = path.startsWith("/") || path.startsWith("sdcard/") || path.startsWith("storage/") || (custom != null && !custom.trim().isEmpty()) || tree == null;
+				if (useFile) {
+					File f = getFileForPath(path);
+					if (f != null && f.exists()) {
+						return f.delete() ? "OK" : "ERR:Delete nahi hua";
+					}
+					return "ERR:Nahi mila: " + path;
+				}
 				String[] parts = splitPath(path);
 				if (parts.length == 0) return "ERR:Poora workspace delete nahi kar sakte";
 				Uri doc = fsFind(tree, parts, parts.length);
@@ -786,11 +939,20 @@ public class MainActivity extends Activity {
 		@JavascriptInterface
 		public String fsRename(String path, String newName) {
 			try {
+				if (path == null || path.trim().isEmpty() || newName == null || newName.trim().isEmpty()) return "ERR:Path aur naya naam do";
+				String custom = getSharedPreferences("aiagent", MODE_PRIVATE).getString("fsFolderPath", null);
 				Uri tree = fsTree();
-				if (tree == null) return "ERR:NO_ROOT";
+				boolean useFile = path.startsWith("/") || path.startsWith("sdcard/") || path.startsWith("storage/") || (custom != null && !custom.trim().isEmpty()) || tree == null;
+				if (useFile) {
+					File f = getFileForPath(path);
+					if (f != null && f.exists()) {
+						File dest = new File(f.getParentFile(), newName.trim());
+						return f.renameTo(dest) ? "OK" : "ERR:Rename nahi hua";
+					}
+					return "ERR:Nahi mila: " + path;
+				}
 				String[] parts = splitPath(path);
 				if (parts.length == 0) return "ERR:Path do";
-				if (newName == null || newName.trim().length() == 0 || newName.indexOf('/') >= 0) return "ERR:Naya naam galat hai";
 				Uri doc = fsFind(tree, parts, parts.length);
 				if (doc == null) return "ERR:Nahi mila: " + path;
 				Uri r = DocumentsContract.renameDocument(getContentResolver(), doc, newName.trim());
@@ -826,7 +988,6 @@ public class MainActivity extends Activity {
 			});
 		}
 
-
 		@JavascriptInterface
 		public void termRun(final String id, final String cmd) {
 			pool.execute(new Runnable() {
@@ -850,28 +1011,51 @@ public class MainActivity extends Activity {
 		@JavascriptInterface
 		public String fsOpen(String path) {
 			try {
-				Uri tree = fsTree();
-				if (tree == null) return "ERR:NO_ROOT";
-				String[] parts = splitPath(path);
-				if (parts.length == 0) return "ERR:Path do";
-				final Uri doc = fsFind(tree, parts, parts.length);
-				if (doc == null) return "ERR:Nahi mila: " + path;
-				final String name = parts[parts.length - 1];
+				if (path == null || path.trim().isEmpty()) return "ERR:Path do";
+				final String name = path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
 				final String mime = name.toLowerCase(Locale.ROOT).endsWith(".apk") ? "application/vnd.android.package-archive" : mimeFor(name);
-				runOnUiThread(new Runnable() {
-					@Override
-					public void run() {
-						try {
-							Intent i = new Intent(Intent.ACTION_VIEW);
-							i.setDataAndType(doc, mime);
-							i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-							startActivity(i);
-						} catch (Exception e) {
-							Toast.makeText(MainActivity.this, "Is file ko kholne wala app nahi mila", Toast.LENGTH_LONG).show();
+
+				File f = getFileForPath(path);
+				if (f != null && f.exists()) {
+					final File targetFile = f;
+					runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							try {
+								Intent i = new Intent(Intent.ACTION_VIEW);
+								i.setDataAndType(Uri.fromFile(targetFile), mime);
+								i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+								startActivity(i);
+							} catch (Exception e) {
+								Toast.makeText(MainActivity.this, "File open karne wala app nahi mila: " + e.getMessage(), Toast.LENGTH_LONG).show();
+							}
 						}
+					});
+					return "OK";
+				}
+
+				Uri tree = fsTree();
+				if (tree != null) {
+					String[] parts = splitPath(path);
+					final Uri doc = fsFind(tree, parts, parts.length);
+					if (doc != null) {
+						runOnUiThread(new Runnable() {
+							@Override
+							public void run() {
+								try {
+									Intent i = new Intent(Intent.ACTION_VIEW);
+									i.setDataAndType(doc, mime);
+									i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+									startActivity(i);
+								} catch (Exception e) {
+									Toast.makeText(MainActivity.this, "Is file ko kholne wala app nahi mila", Toast.LENGTH_LONG).show();
+								}
+							}
+						});
+						return "OK";
 					}
-				});
-				return "OK";
+				}
+				return "ERR:Nahi mila: " + path;
 			} catch (Exception e) {
 				return "ERR:" + e.getMessage();
 			}
@@ -887,14 +1071,14 @@ public class MainActivity extends Activity {
 				if (Build.VERSION.SDK_INT >= 29) {
 					android.content.ContentValues v = new android.content.ContentValues();
 					v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, nm);
-					v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream");
+					v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeFor(nm));
 					v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
 					Uri u = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
 					if (u == null) throw new java.io.IOException("Downloads folder nahi mila");
 					os = getContentResolver().openOutputStream(u);
 					where = "Downloads/" + nm;
 				} else {
-					File f = new File(getExternalFilesDir(null), nm);
+					File f = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), nm);
 					os = new FileOutputStream(f);
 					where = f.getAbsolutePath();
 				}
@@ -902,6 +1086,7 @@ public class MainActivity extends Activity {
 				os.write(b);
 				os.flush();
 				os.close();
+				toast("Downloads mein save hua: " + nm);
 				return where;
 			} catch (Exception e) {
 				return "ERR:" + e.getMessage();
@@ -909,6 +1094,113 @@ public class MainActivity extends Activity {
 		}
 
 		@JavascriptInterface
+		public String saveDownloadFile(String path, String name) {
+			try {
+				if (name == null || name.trim().isEmpty()) {
+					name = path != null && path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : "file.txt";
+				}
+				String nm = safeName(name);
+				byte[] b = null;
+				File f = getFileForPath(path);
+				if (f != null && f.exists() && f.isFile()) {
+					FileInputStream fis = new FileInputStream(f);
+					ByteArrayOutputStream baos = new ByteArrayOutputStream();
+					byte[] buf = new byte[8192];
+					int n;
+					while ((n = fis.read(buf)) != -1) baos.write(buf, 0, n);
+					fis.close();
+					b = baos.toByteArray();
+				} else {
+					Uri tree = fsTree();
+					if (tree != null) {
+						String[] parts = splitPath(path);
+						Uri doc = fsFind(tree, parts, parts.length);
+						if (doc != null) {
+							InputStream in = getContentResolver().openInputStream(doc);
+							if (in != null) {
+								ByteArrayOutputStream baos = new ByteArrayOutputStream();
+								byte[] buf = new byte[8192];
+								int n;
+								while ((n = in.read(buf)) != -1) baos.write(buf, 0, n);
+								in.close();
+								b = baos.toByteArray();
+							}
+						}
+					}
+				}
+				if (b == null) return "ERR:File nahi mili: " + path;
+
+				OutputStream os;
+				String where;
+				if (Build.VERSION.SDK_INT >= 29) {
+					android.content.ContentValues v = new android.content.ContentValues();
+					v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, nm);
+					v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeFor(nm));
+					v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+					Uri u = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+					if (u == null) throw new java.io.IOException("Downloads folder nahi mila");
+					os = getContentResolver().openOutputStream(u);
+					where = "Downloads/" + nm;
+				} else {
+					File out = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), nm);
+					os = new FileOutputStream(out);
+					where = out.getAbsolutePath();
+				}
+				if (os == null) throw new java.io.IOException("File khul nahi payi");
+				os.write(b);
+				os.flush();
+				os.close();
+				toast("Downloads mein save hua: " + nm);
+				return where;
+			} catch (Exception e) {
+				return "ERR:" + e.getMessage();
+			}
+		}
+
+		@JavascriptInterface
+		public String saveDownloadZip(String folderPath, String zipName) {
+			try {
+				if (zipName == null || zipName.trim().isEmpty()) zipName = "project.zip";
+				if (!zipName.endsWith(".zip")) zipName += ".zip";
+				String nm = safeName(zipName);
+				File dir = getFileForPath(folderPath == null ? "" : folderPath);
+				if (dir == null || !dir.exists() || !dir.isDirectory()) {
+					return "ERR:Folder nahi mila: " + folderPath;
+				}
+
+				ByteArrayOutputStream baos = new ByteArrayOutputStream();
+				ZipOutputStream zos = new ZipOutputStream(baos);
+				zipDir(dir, dir, zos);
+				zos.close();
+				byte[] b = baos.toByteArray();
+
+				OutputStream os;
+				String where;
+				if (Build.VERSION.SDK_INT >= 29) {
+					android.content.ContentValues v = new android.content.ContentValues();
+					v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, nm);
+					v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/zip");
+					v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+					Uri u = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+					if (u == null) throw new java.io.IOException("Downloads folder nahi mila");
+					os = getContentResolver().openOutputStream(u);
+					where = "Downloads/" + nm;
+				} else {
+					File out = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), nm);
+					os = new FileOutputStream(out);
+					where = out.getAbsolutePath();
+				}
+				if (os == null) throw new java.io.IOException("File khul nahi payi");
+				os.write(b);
+				os.flush();
+				os.close();
+				toast("Project ZIP Downloads mein save ho gayi: " + nm);
+				return where;
+			} catch (Exception e) {
+				return "ERR:" + e.getMessage();
+			}
+		}
+
 		public String saveNotebook() {
 			try {
 				String name = "Agent1_Builder.ipynb";

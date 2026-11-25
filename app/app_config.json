@@ -6,8 +6,8 @@
   "package": "com.aiagent",
   "targetSdkVersion": 34,
   "useR8": false,
-  "versionCode": 16,
-  "versionName": "2.7",
+  "versionCode": 17,
+  "versionName": "2.8",
   "viewBindingEnabled": false,
   "zipAlignEnabled": false
 }
