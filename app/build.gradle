@@ -10,8 +10,8 @@ android {
         applicationId "com.aiagent"
         minSdk 26
         targetSdk 34
-        versionCode 18
-        versionName "2.9"
+        versionCode 19
+        versionName "2.9.1"
         ndk {
             // MediaPipe LLM runs on 64-bit ARM phones
             abiFilters 'arm64-v8a'
