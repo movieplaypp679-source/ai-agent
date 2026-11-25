@@ -31,23 +31,23 @@ jobs:
           fi
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
-          cp app/build/outputs/apk/debug/app-debug.apk ./AI-Agent-v2.8-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ./AI-Agent-v2.9-debug.apk
           cp app/build/outputs/apk/debug/app-debug.apk ./AI-Agent-v2.7-debug.apk
           cp app/build/outputs/apk/debug/app-debug.apk ./AI-Agent-v2.6-debug.apk
 
       - name: Create Clean Project ZIP
         run: |
-          zip -r ./AI_Agent_Phase10_v2.8_updated.zip app settings.gradle build.gradle PHASE10_NOTES.md -x "app/build/*" "*.git*"
+          zip -r ./AI_Agent_Phase10_v2.9_updated.zip app settings.gradle build.gradle PHASE10_NOTES.md -x "app/build/*" "*.git*"
           zip -r ./AI_Agent_Phase10_v2.7_updated.zip app settings.gradle build.gradle PHASE10_NOTES.md -x "app/build/*" "*.git*"
           zip -r ./AI_Agent_Phase9_v2.6_updated.zip app settings.gradle build.gradle PHASE10_NOTES.md -x "app/build/*" "*.git*"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AI-Agent-v2.8-release-files
+          name: AI-Agent-v2.9-release-files
           path: |
-            ./AI-Agent-v2.8-debug.apk
-            ./AI_Agent_Phase10_v2.8_updated.zip
+            ./AI-Agent-v2.9-debug.apk
+            ./AI_Agent_Phase10_v2.9_updated.zip
             ./AI-Agent-v2.7-debug.apk
             ./AI_Agent_Phase10_v2.7_updated.zip
             ./AI-Agent-v2.6-debug.apk
@@ -58,6 +58,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create v2.8 ./AI-Agent-v2.8-debug.apk ./AI_Agent_Phase10_v2.8_updated.zip --title "AI Agent v2.8" --notes "Fast multi-file attachment, custom folder saving, in-chat download cards and ZIP export." || gh release upload v2.8 ./AI-Agent-v2.8-debug.apk ./AI_Agent_Phase10_v2.8_updated.zip --clobber
+          gh release create v2.9 ./AI-Agent-v2.9-debug.apk ./AI_Agent_Phase10_v2.9_updated.zip --title "AI Agent v2.9" --notes "Strict API lock: use only the selected API; no OpenRouter fallback. Save & lock API settings." || gh release upload v2.9 ./AI-Agent-v2.9-debug.apk ./AI_Agent_Phase10_v2.9_updated.zip --clobber
           gh release upload v2.7 ./AI-Agent-v2.7-debug.apk ./AI_Agent_Phase10_v2.7_updated.zip --clobber || true
           gh release upload v2.6 ./AI-Agent-v2.6-debug.apk ./AI_Agent_Phase9_v2.6_updated.zip --clobber || true

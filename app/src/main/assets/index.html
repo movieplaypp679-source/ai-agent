@@ -295,17 +295,23 @@ input[type=range]{width:100%;accent-color:#8b5cf6;height:28px}
     </div></div>
 
     <div class="sec" id="secSrv"><h3>Server connection</h3><div class="card">
-      <div class="row"><small style="color:var(--mut);font-size:12px">OpenAI-compatible = LM Studio, llama.cpp server, vLLM, Jan, OpenRouter, ya koi bhi aisa API jo OpenAI jaisa "/chat/completions" format support karta ho. <b>Base URL/Server URL</b> = us service ka address, bina <code>/chat/completions</code> wale hisse ke - jaise <code>https://api.openai.com/v1</code> ya <code>https://openrouter.ai/api/v1</code>. Wo service ki website par "API"/"Developers" section mein milta hai.</small></div>
+      <div class="row" style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.4);padding:10px 12px;border-radius:10px">
+        <b>Active API: <span id="activeProvName">Your selected API</span></b>
+        <small id="activeProvDetail" style="display:block;color:var(--mut);font-size:12px;margin-top:4px"></small>
+      </div>
+      <div class="row h"><label>Strict API lock<small>On hone par sirf current URL, API key aur model chalega. OpenRouter ya kisi doosre provider par automatic switch nahi hoga.</small></label><span class="sw"><input type="checkbox" data-s="strictProvider"><i></i></span></div>
+      <div class="row"><small style="color:var(--mut);font-size:12px">OpenAI-compatible API ka base URL, key aur model neeche set karein.</small></div>
       <div class="row"><label>Server URL / Base URL</label><input class="inp" id="sUrl" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="https://api.example.com/v1">
         <div class="presets" id="presets"></div><div class="cst" id="presetHint"></div>
-        <div class="cst" id="apiStatus" style="margin-top:8px;line-height:1.7"></div><button class="btn ghost sm" id="btnApiReset" style="margin-top:6px">Provider status reset</button></div>
-      <div class="row"><label>API key <small>Optional (sirf cloud/protected server ke liye)</small></label><input class="inp" id="sKey" type="password" autocomplete="off" placeholder="sk-..."></div>
-      <div class="row"><label>Model</label><input class="inp" id="sModel" list="modelList" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="llama3.1:8b"><datalist id="modelList"></datalist>
-        <div class="row h" style="padding:8px 0"><label>Auto model<small>Chalne wala model khud chuno. Limit ya error aaye to agla model, phir doosra free provider (jiski key save hai)</small></label><span class="sw"><input type="checkbox" data-s="autoModel"><i></i></span></div>
-        <div style="display:flex;gap:8px;align-items:center"><button class="btn sm" id="btnLoad"><i data-i="refresh"></i>Connect &amp; load models</button></div>
+        <div class="cst" id="apiStatus" style="margin-top:8px;line-height:1.7"></div>
+      </div>
+      <div class="row"><label>API key <small>Apni API key yahan daalo</small></label><input class="inp" id="sKey" type="password" autocomplete="off" placeholder="API key"></div>
+      <div class="row"><label>Model</label><input class="inp" id="sModel" list="modelList" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="model-id"><datalist id="modelList"></datalist>
+        <div class="row h" style="padding:8px 0"><label>Auto model<small>Sirf isi provider ke models mein switch karega; doosre API par nahi.</small></label><span class="sw"><input type="checkbox" data-s="autoModel"><i></i></span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn sm" id="btnSaveLock" style="background:#10b981;color:#fff;font-weight:700"><i data-i="check"></i>Save &amp; Lock My API</button><button class="btn ghost sm" id="btnLoad"><i data-i="refresh"></i>Connect &amp; load models</button><button class="btn ghost sm" id="btnApiReset">Status reset</button></div>
         <div class="cst" id="cst"></div></div>
       <div class="row"><label>Custom provider save karo <small>Upar wale Base URL/key/model ko naam deke save karo, taaki agli baar ek tap mein wapas aa sake</small></label>
-        <input class="inp" id="cpName" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="e.g. Mera Together AI">
+        <input class="inp" id="cpName" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="e.g. Mera API">
         <button class="btn ghost sm" id="btnSaveCustom">Save as custom provider</button></div>
     </div></div>
 
@@ -445,9 +451,19 @@ var LS={get:function(k,d){try{var v=localStorage.getItem(k);return v==null?d:JSO
 var PERM_DEF={web:'allow',read:'allow',write:'ask',delete:'ask',download:'ask',system:'ask',device:'ask'};
 var DEF={provider:(A&&A.llmLoad)?'device':'ollama',devModel:'',devBackend:'cpu',maxNew:512,profile:'',pendingA1:false,hfToken:'',custom:[],customProv:[],baseUrl:'http://127.0.0.1:11434',apiKey:'',model:'',temperature:0.7,agent:true,maxSteps:40,voiceProvider:'real',edgeVoice:'hi-IN-SwaraNeural',edgePitch:0,edgeRate:0,elevenKey:'',elevenVoiceId:'',elevenVoiceName:'',elevenModel:'eleven_multilingual_v2',elevenStability:0.45,elevenStyle:0.35,elevenAutoFallback:true,
  tools:{web_search:true,read_webpage:true,get_datetime:true,calculator:true,weather:true,device_info:true,remember:true,tasks:true,unit_convert:true,forget:true,clipboard:true,fetch_url:true,research:true,download_file:true,fs_list:true,fs_read:true,fs_write:true,fs_append:true,fs_edit:true,fs_mkdir:true,fs_delete:true,fs_rename:true,fs_search:true,project_create:true,use_skill:true,create_skill:true,godot_new:true,gd_lint:true,analyze_file:true,find_assets:true,polyhaven_model:true,unzip_file:true,open_file:true,terminal:false,open_app:true,screen_enable:true,screen_look:true,screen_tap:true,screen_type:true,screen_swipe:true,team_task:true,termux_run:true,storage_enable:true,set_workspace_folder:true},
- plan:true,a1Url:'',a1Auto:true,a1Key:'',a1Switch:'',keys:{},preset:'',autoModel:true,modelAuto:false,maxOut:8192,ver:27,
+ plan:true,a1Url:'',a1Auto:true,a1Key:'',a1Switch:'',keys:{},preset:'',strictProvider:true,autoModel:true,modelAuto:false,maxOut:8192,ver:27,
  lang:'auto',system:'',speak:false,voiceLang:'hi-IN'};
-var S=Object.assign({},DEF,LS.get('settings',{}));S.tools=Object.assign({},DEF.tools,S.tools||{});
+var savedSettings=LS.get('settings',{});var S=Object.assign({},DEF,savedSettings);S.tools=Object.assign({},DEF.tools,S.tools||{});
+if(typeof savedSettings.strictProvider==='undefined'){
+ S.strictProvider=true;
+ if(S.preset==='openrouter'){
+  var preferred=['deepseek','openai','sambanova','gemini','groq','cerebras','nvidia','mistral'];
+  var restore=preferred.filter(function(id){return S.keys&&S.keys[id]})[0];
+  if(restore){var urls={deepseek:'https://api.deepseek.com',openai:'https://api.openai.com/v1',sambanova:'https://api.sambanova.ai/v1',gemini:'https://generativelanguage.googleapis.com/v1beta/openai',groq:'https://api.groq.com/openai/v1',cerebras:'https://api.cerebras.ai/v1',nvidia:'https://integrate.api.nvidia.com/v1',mistral:'https://api.mistral.ai/v1'};S.preset=restore;S.baseUrl=urls[restore];S.apiKey=S.keys[restore];S.model='';S.modelAuto=true}
+  else if(S.customProv&&S.customProv.length){var rc=S.customProv[0];S.preset='';S.provider='openai';S.baseUrl=rc.u;S.apiKey=rc.key||'';S.model=rc.model||'';S.modelAuto=!rc.model}
+ }
+ LS.set('settings',S)
+}
 if((S.ver||0)<27){S.ver=27;S.autoModel=true;if((+S.maxSteps||0)<40)S.maxSteps=40;if(!S.maxOut)S.maxOut=8192;S.tools.gd_lint=true;S.tools.analyze_file=true;LS.set('settings',S)}
 S.perms=Object.assign({},PERM_DEF,S.perms||{});
 S.keys=S.keys||{};
@@ -668,6 +684,12 @@ function rankModels(ms,needVision){
 function nextModel(list){for(var i=0;i<list.length;i++){var m=list[i];if(m!==S.model&&modelOk(m))return m}return null}
 function candidates(){
  var out=[];
+ if(S.strictProvider){
+  var current=PRESETS.filter(function(p){return p.id&&p.id===S.preset})[0];
+  if(current)out.push({id:current.id,n:current.n,p:current.p,u:S.baseUrl||current.u,key:S.apiKey||'',custom:false,model:S.model});
+  else if(S.baseUrl)out.push({id:'active-custom',n:'Selected API',p:S.provider||'openai',u:S.baseUrl,key:S.apiKey||'',custom:true,model:S.model});
+  return out;
+ }
  FALL_ORDER.concat(PRESETS.map(function(p){return p.id}).filter(function(i){return i&&FALL_ORDER.indexOf(i)<0})).forEach(function(id){
   var q=PRESETS.filter(function(x){return x.id===id})[0];
   if(q&&S.keys&&S.keys[id])out.push({id:id,n:q.n,p:q.p,u:q.u,key:S.keys[id],custom:false});
@@ -675,7 +697,7 @@ function candidates(){
  (S.customProv||[]).forEach(function(c,i){if(c.key||/127\.0\.0\.1|192\.168\./.test(c.u))out.push({id:'c'+i+':'+c.u,n:c.n,p:'openai',u:c.u,key:c.key||'',custom:true,model:c.model});});
  return out;
 }
-function nextProvider(){var cs=candidates(),cur=curPid();for(var i=0;i<cs.length;i++){var q=cs[i];if(q.id!==cur&&!provTried[q.id]&&!provDown(q.id))return q}return null}
+function nextProvider(){if(S.strictProvider)return null;var cs=candidates(),cur=curPid();for(var i=0;i<cs.length;i++){var q=cs[i];if(q.id!==cur&&!provTried[q.id]&&!provDown(q.id))return q}return null}
 async function switchPreset(q){
  provTried[q.id]=1;
  S.preset=q.custom?'':q.id;S.provider=q.p;S.baseUrl=q.u;S.apiKey=q.key||'';S.model=q.model||'';
@@ -718,6 +740,7 @@ async function cloudStream(messages,onText,signal){
  }
 }
 function viaCloud(messages,onText,signal){
+ if(S.strictProvider)return rawChat(messages,onText,signal);
  var cs=candidates(),pick=null;
  for(var i=0;i<VISION_ORDER.length&&!pick;i++)for(var j=0;j<cs.length;j++)if(cs[j].id===VISION_ORDER[i]&&!provDown(cs[j].id)){pick=cs[j];break}
  if(!pick)for(var k=0;k<cs.length;k++)if(!provDown(cs[k].id)){pick=cs[k];break}
@@ -2261,7 +2284,7 @@ function renderApiStatus(){
  var el=document.getElementById('apiStatus');if(!el)return;
  var cs=candidates();
  if(!cs.length){el.innerHTML='<b>API status:</b> abhi koi saved key nahi. Provider chuno, key daalo - jitne zyada free providers, utni zyada daily limit.';return}
- el.innerHTML='<b>API status (auto-rotate):</b><br>'+cs.map(function(c){var hd=HEALTH[c.id],down=hd&&hd.until>Date.now();return (down?'\u23F3 ':'\u2705 ')+esc(c.n)+(down?' - '+esc(hd.why)+' ('+Math.ceil((hd.until-Date.now())/60000)+' min baad retry)':' - ready')}).join('<br>');
+ el.innerHTML='<b>API status ('+(S.strictProvider?'selected provider only':'auto-rotate')+'):</b><br>'+cs.map(function(c){var hd=HEALTH[c.id],down=hd&&hd.until>Date.now();return (down?'\u23F3 ':'\u2705 ')+esc(c.n)+(down?' - '+esc(hd.why)+' ('+Math.ceil((hd.until-Date.now())/60000)+' min baad retry)':' - ready')}).join('<br>');
 }
 async function checkConn(loud){
  if(S.provider==='device'){conn=devSel()?'on':'off';refreshHeader();return conn==='on'}
@@ -2308,7 +2331,7 @@ function fillSettings(){
  $('#vSteps').textContent=S.maxSteps;$('#vTemp').textContent=(+S.temperature).toFixed(2);$('#vNew').textContent=S.maxNew;
  $('#presets').innerHTML=PRESETS.map(function(p,i){return '<button class="pill" data-i="'+i+'">'+esc(p.n)+'</button>'}).join('')
   +(S.customProv||[]).map(function(c,i){return '<button class="pill" data-c="'+i+'">'+esc(c.n)+'<span data-cdel="'+i+'" style="margin-left:6px;opacity:.6">&times;</span></button>'}).join('');
- renderApiStatus();var cp=PRESETS.filter(function(x){return x.id&&x.id===S.preset})[0];$('#presetHint').textContent=cp?cp.hint+(Object.keys(S.keys).filter(function(k){return S.keys[k]}).length>1?'  |  Auto: limit aane par doosre saved-key wale provider par khud switch hoga.':''):'';
+ renderApiStatus();var cp=PRESETS.filter(function(x){return x.id&&x.id===S.preset})[0];$('#presetHint').textContent=cp?cp.hint+(S.strictProvider?'  |  LOCKED: doosre provider par switch nahi hoga.':'  |  Auto-rotate enabled.'):'';
  $('#toolList').innerHTML=Object.keys(TOOLS).map(function(k){var T=TOOLS[k];return '<div class="tl" style="padding:6px 0"><span class="ti">'+svg(T.icon)+'</span><div><label>'+T.label+'</label></div><span class="sw"><input type="checkbox" data-tool="'+k+'"'+(S.tools[k]?' checked':'')+'><i></i></span></div>'}).join('');
  renderMem();renderTasks();renderWorkspace();renderSkills();$('#a1Url').value=S.a1Url||'';
  $('#edgeRow').style.display=S.voiceProvider==='real'?'':'none';$('#elevenRow').style.display=S.voiceProvider==='eleven'?'':'none';if($('#vERate'))$('#vERate').textContent=(1+(+S.edgeRate||0)/100).toFixed(2)+'x';if($('#vEPitch'))$('#vEPitch').textContent=(+S.edgePitch||0)>0?('+'+S.edgePitch+'%'):(+S.edgePitch||0)<0?(S.edgePitch+'%'):'Normal';
@@ -2351,13 +2374,14 @@ function renderMem(){
 function openSettings(){closeDrawer();fillSettings();$('#settings').classList.add('on');orbHero.visible=false}
 function closeSettings(){$('#settings').classList.remove('on');var c=cur();orbHero.visible=!c||!c.msgs.length;refreshHeader()}
 $('#btnApiReset').addEventListener('click',function(){HEALTH={};modelBad={};saveHealth();renderApiStatus();toast('Status reset')});
+$('#btnSaveLock').addEventListener('click',function(){S.baseUrl=$('#sUrl').value.trim();S.apiKey=$('#sKey').value.trim();S.model=$('#sModel').value.trim();if(!S.baseUrl){toast('Server URL daalo');return}if(S.preset&&S.apiKey)S.keys[S.preset]=S.apiKey;S.strictProvider=true;S.modelAuto=!S.model;saveS();fillSettings();toast('API saved aur locked - doosre provider par switch nahi hoga');checkConn(false)});
 $('#segProv').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;S.provider=b.getAttribute('data-v');saveS();fillSettings();checkConn(false)});
 $('#presets').addEventListener('click',function(e){
  var del=e.target.closest('[data-cdel]');
  if(del){e.stopPropagation();var i=+del.getAttribute('data-cdel');var removed=(S.customProv||[])[i];S.customProv.splice(i,1);saveS();fillSettings();toast('Hataya: '+(removed?removed.n:''));return}
  var cb=e.target.closest('[data-c]');
  if(cb){var c=(S.customProv||[])[+cb.getAttribute('data-c')];if(!c)return;S.provider='openai';S.baseUrl=c.u;S.preset='';S.apiKey=c.key||'';S.model=c.model||'';S.modelAuto=!c.model;saveS();fillSettings();checkConn(false);return}
- var b=e.target.closest('button[data-i]');if(!b)return;var p=PRESETS[+b.getAttribute('data-i')];S.provider=p.p;S.baseUrl=p.u;S.preset=p.id||'';S.apiKey=(p.id&&S.keys[p.id])||'';S.model='';S.modelAuto=true;saveS();fillSettings();if(p.id&&S.apiKey)checkConn(false)
+ var b=e.target.closest('button[data-i]');if(!b)return;var p=PRESETS[+b.getAttribute('data-i')];S.provider=p.p;S.baseUrl=p.u;S.preset=p.id||'';S.apiKey=(p.id&&S.keys[p.id])||'';S.model=p.dm||'';S.modelAuto=!p.dm;saveS();fillSettings();if(p.id&&S.apiKey)checkConn(false)
 });
 $('#btnSaveCustom').addEventListener('click',function(){
  var name=$('#cpName').value.trim(),url=$('#sUrl').value.trim();
