@@ -83,6 +83,8 @@ public class MainActivity extends Activity {
 	private String pendingVoiceRecordId;
 	private static final int REQ_PICK = 78;
 	private static final int REQ_TREE = 79;
+	private static final int REQ_FILE = 80;
+	private ValueCallback<Uri[]> fileCb;
 	private static final String UA = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
 
 	private WebView web;
@@ -138,7 +140,25 @@ public class MainActivity extends Activity {
 		CookieManager.getInstance().setAcceptCookie(true);
 		CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
 		web.addJavascriptInterface(new Bridge(), "Android");
-		web.setWebChromeClient(new WebChromeClient());
+		web.setWebChromeClient(new WebChromeClient() {
+			@Override
+			public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
+				if (fileCb != null) { try { fileCb.onReceiveValue(null); } catch (Throwable ignored) {} }
+				fileCb = cb;
+				try {
+					Intent it = new Intent(Intent.ACTION_GET_CONTENT);
+					it.addCategory(Intent.CATEGORY_OPENABLE);
+					it.setType("*/*");
+					it.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+					startActivityForResult(Intent.createChooser(it, "File / Image / Video chuno"), REQ_FILE);
+				} catch (Throwable t) {
+					fileCb = null;
+					cb.onReceiveValue(null);
+					return false;
+				}
+				return true;
+			}
+		});
 		web.setWebViewClient(new WebViewClient() {
 			@Override
 			public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
@@ -2780,6 +2800,20 @@ public class MainActivity extends Activity {
 	@Override
 	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 		super.onActivityResult(requestCode, resultCode, data);
+		if (requestCode == REQ_FILE) {
+			Uri[] res = null;
+			if (resultCode == RESULT_OK && data != null) {
+				if (data.getClipData() != null) {
+					int n = data.getClipData().getItemCount();
+					res = new Uri[n];
+					for (int i = 0; i < n; i++) res[i] = data.getClipData().getItemAt(i).getUri();
+				} else if (data.getData() != null) {
+					res = new Uri[]{data.getData()};
+				}
+			}
+			if (fileCb != null) { fileCb.onReceiveValue(res); fileCb = null; }
+			return;
+		}
 		if (requestCode == REQ_TREE) {
 			if (resultCode == RESULT_OK && data != null && data.getData() != null) {
 				Uri t = data.getData();
